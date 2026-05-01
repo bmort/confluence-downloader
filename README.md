@@ -2,24 +2,24 @@
   <img src="assets/confluence-pdf-context-logo.png" alt="Confluence PDF Context CLI logo" width="400">
 </p>
 
-# Confluence PDF Context CLI
+# Confluence PDF Downloader
 
-Turn Confluence Data Center pages into clean PDF context packs for LLM workflows. The
-CLI can download one page, many named pages, or whole page trees; combine each page tree
-into a single PDF by default; generate bulk download configs from a space tree; and skip
+Turn Confluence Data Center pages into clean PDF context packs for LLM workflows. The CLI
+can download one page, many named pages, or whole page trees; combine each page tree into
+a single PDF by default; generate bulk download configs from a space tree; and skip
 unchanged pages in bulk mode by comparing Confluence versions with the local manifest.
 
 ## ✨ What It Does
 
-| Need | Use |
-| --- | --- |
-| Download one page | `confluence-pdf download --space KEY --title "Page"` |
-| Download a page and all descendants | Add `--include-children` |
-| Get one PDF per page instead of a combined tree PDF | Add `--separate-pages` |
-| Download pages across multiple spaces | Use `confluence-pdf bulk --config pages.json` |
-| Skip pages already downloaded at the same version | Use bulk mode, which reads `downloaded_pages.md` |
-| Discover pages and build a bulk config | Use `confluence-pdf list-space --bulk-config pages.json` |
-| Handle rate limits | Add `--request-delay`, `--retry-backoff`, and `--max-retries` |
+| Need                                                | Use                                                           |
+| --------------------------------------------------- | ------------------------------------------------------------- |
+| Download one page                                   | `confluence-pdf download --space KEY --title "Page"`          |
+| Download a page and all descendants                 | Add `--include-children`                                      |
+| Get one PDF per page instead of a combined tree PDF | Add `--separate-pages`                                        |
+| Download pages across multiple spaces               | Use `confluence-pdf bulk --config pages.json`                 |
+| Skip pages already downloaded at the same version   | Use bulk mode, which reads `downloaded_pages.md`              |
+| Discover pages and build a bulk config              | Use `confluence-pdf list-space --bulk-config pages.json`      |
+| Handle rate limits                                  | Add `--request-delay`, `--retry-backoff`, and `--max-retries` |
 
 ## 📦 Install
 
@@ -109,13 +109,13 @@ uv run confluence-pdf download \
 
 ## 🧭 Choosing Download Options
 
-| Option | Applies to | Default | Meaning |
-| --- | --- | --- | --- |
-| `--include-children` | `download`, `bulk` config entries | Off for `download`; configurable in bulk JSON | Include all descendants, not only direct children |
-| `--combine-children` | `download`, `bulk` | On | Write one combined PDF per requested root when children are included |
-| `--separate-pages` | `download`, `bulk` | Off | Write one PDF per page instead of one combined tree PDF |
-| `--force` | `download`, `bulk` | Off | Regenerate even when an existing PDF or manifest version would normally skip work |
-| `--verbosity` | `download`, `bulk` | `quiet` for download, `normal` for bulk | Choose `quiet`, `normal`, or `verbose` progress logs |
+| Option               | Applies to                        | Default                                       | Meaning                                                                           |
+| -------------------- | --------------------------------- | --------------------------------------------- | --------------------------------------------------------------------------------- |
+| `--include-children` | `download`, `bulk` config entries | Off for `download`; configurable in bulk JSON | Include all descendants, not only direct children                                 |
+| `--combine-children` | `download`, `bulk`                | On                                            | Write one combined PDF per requested root when children are included              |
+| `--separate-pages`   | `download`, `bulk`                | Off                                           | Write one PDF per page instead of one combined tree PDF                           |
+| `--force`            | `download`, `bulk`                | Off                                           | Regenerate even when an existing PDF or manifest version would normally skip work |
+| `--verbosity`        | `download`, `bulk`                | `quiet` for download, `normal` for bulk       | Choose `quiet`, `normal`, or `verbose` progress logs                              |
 
 ## 📚 Bulk Downloads
 
@@ -208,10 +208,10 @@ and summary. Use verbosity to control how noisy it is:
 uv run confluence-pdf bulk --config pages.json --verbosity verbose
 ```
 
-| Verbosity | Best for |
-| --- | --- |
-| `quiet` | Automation where only summaries and errors matter |
-| `normal` | Day-to-day bulk downloads |
+| Verbosity | Best for                                                     |
+| --------- | ------------------------------------------------------------ |
+| `quiet`   | Automation where only summaries and errors matter            |
+| `normal`  | Day-to-day bulk downloads                                    |
 | `verbose` | Large page trees where you want child-page traversal details |
 
 Summary output is shown in a box after each group so it is easy to scan in long runs.
@@ -229,9 +229,9 @@ uv run confluence-pdf bulk \
   --max-retries 5
 ```
 
-`--request-delay` is the minimum delay between Confluence requests.
-`--retry-backoff` is the initial exponential backoff delay for HTTP 429 responses. If
-Confluence returns `Retry-After`, that value is used instead.
+`--request-delay` is the minimum delay between Confluence requests. `--retry-backoff` is
+the initial exponential backoff delay for HTTP 429 responses. If Confluence returns
+`Retry-After`, that value is used instead.
 
 ## 📁 Output Layout
 
