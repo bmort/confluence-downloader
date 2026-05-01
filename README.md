@@ -1,6 +1,16 @@
+<p align="center">
+  <img src="assets/confluence-pdf-context-logo.png" alt="Confluence PDF Context CLI logo" width="620">
+</p>
+
 # Confluence PDF Context CLI
 
-Download Confluence Data Center pages as individual PDFs for use as LLM context.
+Download Confluence Data Center pages into PDF context packs for LLM workflows. The
+CLI can export one or many page titles, recurse through child pages, combine a
+page tree into a single PDF by default, or write separate PDFs when needed. It
+also supports bulk JSON configs across spaces, incremental downloads using the
+recorded Confluence page versions, space tree discovery that can generate or
+update bulk configs, Markdown download manifests, request throttling, retry
+backoff for rate limits, and configurable progress logging.
 
 ## Install
 
@@ -74,8 +84,12 @@ uv run confluence-pdf bulk --config pages.json --output-dir ./pdfs
 ```
 
 Bulk mode uses each space's `downloaded_pages.md` manifest as a version cache.
-It only downloads a page when Confluence reports a different version from the
-last recorded download, unless `--force` is supplied.
+Before downloading, it resolves the current Confluence page version and compares
+it with the manifest row for that page ID. If the version is unchanged and the
+recorded PDF still exists as a valid PDF, the page is skipped unless `--force`
+is supplied. For combined child downloads, the combined PDF is skipped only when
+every page in that root's subtree is unchanged and points to the same recorded
+PDF.
 By default, each configured page is processed as its own group, so progress is
 easy to follow:
 
@@ -166,7 +180,9 @@ Existing files are skipped.
 Each space output directory also contains `downloaded_pages.md`, a Markdown
 table keyed by page ID with the page title, Confluence URL, downloaded version,
 version date, and local PDF filename. Rerunning the tool updates existing rows
-instead of adding duplicates.
+instead of adding duplicates. In `bulk` mode this file is also used to skip
+up-to-date pages as described above; the single `download` command only skips an
+existing valid destination PDF unless `--force` is supplied.
 
 If Confluence's native PDF export action returns a login or MFA page instead of
 PDF bytes, the tool falls back to rendering the page's REST `body.export_view`
