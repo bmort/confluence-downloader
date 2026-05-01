@@ -1,0 +1,78 @@
+from pathlib import Path
+
+import pytest
+
+from confluence_pdf.config import BulkPageRequest, read_bulk_config, update_bulk_config
+from confluence_pdf.errors import ConfigError
+
+
+def test_read_bulk_config_accepts_pages_object(tmp_path: Path) -> None:
+    config = tmp_path / "pages.json"
+    config.write_text(
+        """
+        {
+          "include_children": true,
+          "pages": [
+            {"space": "DOC", "title": "Root"},
+            {"space": "OPS", "title": "Runbook", "include_children": false}
+          ]
+        }
+        """,
+        encoding="utf-8",
+    )
+
+    assert read_bulk_config(config) == [
+        BulkPageRequest(space="DOC", title="Root", include_children=True),
+        BulkPageRequest(space="OPS", title="Runbook", include_children=False),
+    ]
+
+
+def test_read_bulk_config_accepts_top_level_array(tmp_path: Path) -> None:
+    config = tmp_path / "pages.json"
+    config.write_text('[{"space": "DOC", "title": "Root"}]', encoding="utf-8")
+
+    assert read_bulk_config(config) == [
+        BulkPageRequest(space="DOC", title="Root", include_children=False),
+    ]
+
+
+def test_read_bulk_config_requires_title_and_space(tmp_path: Path) -> None:
+    config = tmp_path / "pages.json"
+    config.write_text('[{"space": "DOC"}]', encoding="utf-8")
+
+    with pytest.raises(ConfigError, match="missing a non-empty title"):
+        read_bulk_config(config)
+
+
+def test_update_bulk_config_creates_file(tmp_path: Path) -> None:
+    config = tmp_path / "pages.json"
+
+    update_bulk_config(
+        config,
+        [
+            BulkPageRequest(space="DOC", title="Root", include_children=True),
+            BulkPageRequest(space="OPS", title="Runbook", include_children=False),
+        ],
+    )
+
+    assert read_bulk_config(config) == [
+        BulkPageRequest(space="DOC", title="Root", include_children=True),
+        BulkPageRequest(space="OPS", title="Runbook", include_children=False),
+    ]
+
+
+def test_update_bulk_config_updates_existing_page(tmp_path: Path) -> None:
+    config = tmp_path / "pages.json"
+    config.write_text(
+        '{"include_children": false, "pages": [{"space": "DOC", "title": "Root", "include_children": false}]}',
+        encoding="utf-8",
+    )
+
+    update_bulk_config(
+        config,
+        [BulkPageRequest(space="DOC", title="Root", include_children=True)],
+    )
+
+    assert read_bulk_config(config) == [
+        BulkPageRequest(space="DOC", title="Root", include_children=True),
+    ]

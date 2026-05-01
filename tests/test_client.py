@@ -79,6 +79,56 @@ def test_resolve_page_by_title_raises_on_auth_failure() -> None:
             client.resolve_page_by_title("DOC", "Root")
 
 
+def test_get_json_retries_http_429_with_retry_after() -> None:
+    calls = 0
+    sleeps = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return httpx.Response(429, headers={"Retry-After": "0.5"})
+        return httpx.Response(200, json={"results": [{"id": "123", "title": "Root"}]})
+
+    with ConfluenceClient(
+        "https://confluence.example.test/confluence",
+        "pat-token",
+        transport=httpx.MockTransport(handler),
+        max_retries=2,
+        retry_backoff=10.0,
+        sleep=sleeps.append,
+    ) as client:
+        assert client.resolve_page_by_title("DOC", "Root").id == "123"
+
+    assert calls == 2
+    assert sleeps == [0.5]
+
+
+def test_get_json_uses_exponential_backoff_when_retry_after_missing() -> None:
+    calls = 0
+    sleeps = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        if calls < 3:
+            return httpx.Response(429)
+        return httpx.Response(200, json={"results": [{"id": "123", "title": "Root"}]})
+
+    with ConfluenceClient(
+        "https://confluence.example.test/confluence",
+        "pat-token",
+        transport=httpx.MockTransport(handler),
+        max_retries=3,
+        retry_backoff=0.25,
+        sleep=sleeps.append,
+    ) as client:
+        assert client.resolve_page_by_title("DOC", "Root").id == "123"
+
+    assert calls == 3
+    assert sleeps == [0.25, 0.5]
+
+
 def test_list_child_pages_handles_pagination() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         start = request.url.params["start"]
@@ -107,6 +157,43 @@ def test_list_child_pages_handles_pagination() -> None:
         assert client.list_child_pages("1", page_size=1) == [
             Page(id="2", title="Child A", url="https://confluence.example.test/confluence/pages/viewpage.action?pageId=2"),
             Page(id="3", title="Child B", url="https://confluence.example.test/confluence/pages/viewpage.action?pageId=3"),
+        ]
+
+
+def test_list_space_root_pages_handles_pagination() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/confluence/rest/api/space/DOC/content/page"
+        assert request.url.params["depth"] == "root"
+        assert request.url.params["expand"] == "version"
+        start = request.url.params["start"]
+        if start == "0":
+            return httpx.Response(
+                200,
+                json={
+                    "page": {
+                        "results": [{"id": "1", "title": "Root A"}],
+                        "start": 0,
+                        "limit": 1,
+                        "size": 1,
+                    }
+                },
+            )
+        return httpx.Response(
+            200,
+            json={
+                "page": {
+                    "results": [{"id": "2", "title": "Root B"}],
+                    "start": 1,
+                    "limit": 1,
+                    "size": 0,
+                }
+            },
+        )
+
+    with make_client(handler) as client:
+        assert client.list_space_root_pages("DOC", page_size=1) == [
+            Page(id="1", title="Root A", url="https://confluence.example.test/confluence/pages/viewpage.action?pageId=1"),
+            Page(id="2", title="Root B", url="https://confluence.example.test/confluence/pages/viewpage.action?pageId=2"),
         ]
 
 

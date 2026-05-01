@@ -27,6 +27,23 @@ def render_html_pdf(
     HTML(string=document, base_url=base_url, url_fetcher=url_fetcher).write_pdf(destination)
 
 
+def render_combined_html_pdf(
+    *,
+    title: str,
+    sections: list[tuple[Page, str]],
+    destination: Path,
+    base_url: str,
+    url_fetcher: UrlFetcher | None = None,
+) -> None:
+    """Render multiple Confluence export_view documents into one formatted PDF."""
+    _ensure_homebrew_library_path()
+    from weasyprint import HTML
+
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    document = _wrap_combined_confluence_html(title, sections)
+    HTML(string=document, base_url=base_url, url_fetcher=url_fetcher).write_pdf(destination)
+
+
 def is_pdf_file(path: Path) -> bool:
     try:
         with path.open("rb") as handle:
@@ -125,6 +142,106 @@ def _wrap_confluence_html(page: Page, body_html: str) -> str:
   {body_html}
 </body>
 </html>
+"""
+
+
+def _wrap_combined_confluence_html(title: str, sections: list[tuple[Page, str]]) -> str:
+    safe_title = _escape_html(title)
+    rendered_sections = "\n".join(_render_section(page, body_html) for page, body_html in sections)
+    return f"""<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>{safe_title}</title>
+  <style>
+    @page {{
+      size: A4;
+      margin: 18mm 16mm;
+    }}
+    body {{
+      color: #172b4d;
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 10.5pt;
+      line-height: 1.45;
+    }}
+    h1, h2, h3, h4, h5, h6 {{
+      color: #172b4d;
+      line-height: 1.2;
+      margin: 1.2em 0 0.45em;
+    }}
+    h1 {{
+      border-bottom: 1px solid #dfe1e6;
+      font-size: 22pt;
+      padding-bottom: 8px;
+    }}
+    h2 {{ font-size: 17pt; }}
+    h3 {{ font-size: 14pt; }}
+    p {{ margin: 0 0 0.75em; }}
+    a {{ color: #0052cc; text-decoration: none; }}
+    table {{
+      border-collapse: collapse;
+      margin: 0.8em 0 1em;
+      width: 100%;
+    }}
+    th, td {{
+      border: 1px solid #c1c7d0;
+      padding: 5px 7px;
+      vertical-align: top;
+    }}
+    th {{
+      background: #f4f5f7;
+      font-weight: 700;
+    }}
+    img, svg {{
+      height: auto;
+      max-width: 100%;
+    }}
+    pre, code {{
+      background: #f4f5f7;
+      border-radius: 3px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 9pt;
+    }}
+    pre {{
+      overflow-wrap: break-word;
+      padding: 8px;
+      white-space: pre-wrap;
+    }}
+    blockquote {{
+      border-left: 3px solid #c1c7d0;
+      color: #44546f;
+      margin-left: 0;
+      padding-left: 12px;
+    }}
+    .metadata {{
+      color: #626f86;
+      font-size: 8.5pt;
+      margin-bottom: 16px;
+    }}
+    .combined-page {{
+      break-before: page;
+    }}
+    .combined-page:first-child {{
+      break-before: auto;
+    }}
+  </style>
+</head>
+<body>
+  {rendered_sections}
+</body>
+</html>
+"""
+
+
+def _render_section(page: Page, body_html: str) -> str:
+    title = _escape_html(page.title)
+    source = _escape_html(page.url)
+    return f"""
+<section class="combined-page">
+  <h1>{title}</h1>
+  <div class="metadata">Source: {source}</div>
+  {body_html}
+</section>
 """
 
 

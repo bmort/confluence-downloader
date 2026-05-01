@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from confluence_pdf.manifest import ManifestRecord, update_manifest
+from confluence_pdf.manifest import ManifestRecord, read_manifest_entries, update_manifest
 from confluence_pdf.models import Page
 
 
@@ -27,6 +27,10 @@ def test_update_manifest_writes_download_metadata(tmp_path: Path) -> None:
         "| --- | --- | --- | --- | --- | --- |\n"
         "| 123 | Root \\| Page | [https://confluence.example.test/display/DOC/Root](https://confluence.example.test/display/DOC/Root) | 7 | 2026-05-01T08:30:00.000Z | 0001-123-root.pdf |\n"
     )
+
+    entries = read_manifest_entries(manifest)
+    assert entries["123"].version == 7
+    assert entries["123"].pdf_name == "0001-123-root.pdf"
 
 
 def test_update_manifest_replaces_existing_page_row(tmp_path: Path) -> None:

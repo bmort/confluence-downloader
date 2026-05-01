@@ -16,6 +16,13 @@ class ManifestRecord:
     pdf_path: Path
 
 
+@dataclass(frozen=True)
+class ManifestEntry:
+    page_id: str
+    version: int | None
+    pdf_name: str
+
+
 def update_manifest(manifest_path: Path, records: list[ManifestRecord]) -> None:
     existing = _read_existing_records(manifest_path)
     for record in records:
@@ -26,18 +33,73 @@ def update_manifest(manifest_path: Path, records: list[ManifestRecord]) -> None:
     manifest_path.write_text(HEADER + SEPARATOR + "".join(rows), encoding="utf-8")
 
 
-def _read_existing_records(manifest_path: Path) -> dict[str, str]:
-    if not manifest_path.exists():
-        return {}
+def read_manifest_entries(manifest_path: Path) -> dict[str, ManifestEntry]:
+    entries: dict[str, ManifestEntry] = {}
+    for columns in _read_rows(manifest_path):
+        if len(columns) < 6:
+            continue
+        page_id = _unescape_markdown(columns[0])
+        entries[page_id] = ManifestEntry(
+            page_id=page_id,
+            version=_parse_version(columns[3]),
+            pdf_name=_unescape_markdown(columns[5]),
+        )
+    return entries
 
+
+def _read_existing_records(manifest_path: Path) -> dict[str, str]:
     records: dict[str, str] = {}
+    for columns, line in _read_rows_with_lines(manifest_path):
+        if columns:
+            records[_unescape_markdown(columns[0])] = line
+    return records
+
+
+def _read_rows(manifest_path: Path) -> list[list[str]]:
+    return [columns for columns, _ in _read_rows_with_lines(manifest_path)]
+
+
+def _read_rows_with_lines(manifest_path: Path) -> list[tuple[list[str], str]]:
+    if not manifest_path.exists():
+        return []
+
+    rows: list[tuple[list[str], str]] = []
     for line in manifest_path.read_text(encoding="utf-8").splitlines(keepends=True):
         if not line.startswith("| ") or line in {HEADER, SEPARATOR}:
             continue
-        columns = [column.strip() for column in line.strip().strip("|").split("|")]
+        columns = _split_markdown_row(line)
         if columns and columns[0] and columns[0] != "---":
-            records[_unescape_markdown(columns[0])] = line
-    return records
+            rows.append((columns, line))
+    return rows
+
+
+def _split_markdown_row(line: str) -> list[str]:
+    content = line.strip().strip("|")
+    columns: list[str] = []
+    current: list[str] = []
+    escaped = False
+    for character in content:
+        if escaped:
+            current.append("\\" + character)
+            escaped = False
+            continue
+        if character == "\\":
+            escaped = True
+            continue
+        if character == "|":
+            columns.append("".join(current).strip())
+            current = []
+            continue
+        current.append(character)
+    columns.append("".join(current).strip())
+    return columns
+
+
+def _parse_version(value: str) -> int | None:
+    unescaped = _unescape_markdown(value)
+    if unescaped.isdigit():
+        return int(unescaped)
+    return None
 
 
 def _record_to_row(record: ManifestRecord) -> str:

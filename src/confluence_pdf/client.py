@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import time
 from typing import Any
 from urllib.parse import urljoin
 
@@ -8,7 +9,7 @@ import httpx
 
 from .errors import ConfluenceApiError, ConfluencePdfError, PageLookupError, PdfExportError
 from .models import Page
-from .render import render_html_pdf
+from .render import render_combined_html_pdf, render_html_pdf
 from .utils import normalize_base_url
 
 
@@ -20,8 +21,17 @@ class ConfluenceClient:
         *,
         timeout: float = 60.0,
         transport: httpx.BaseTransport | None = None,
+        request_delay: float = 0.0,
+        retry_backoff: float = 1.0,
+        max_retries: int = 3,
+        sleep: Any = time.sleep,
     ) -> None:
         self.base_url = normalize_base_url(base_url)
+        self.request_delay = request_delay
+        self.retry_backoff = retry_backoff
+        self.max_retries = max_retries
+        self._sleep = sleep
+        self._last_request_at = 0.0
         self._client = httpx.Client(
             headers={
                 "Authorization": f"Bearer {token}",
@@ -71,6 +81,33 @@ class ConfluenceClient:
 
         return descendants
 
+    def list_space_root_pages(self, space_key: str, *, page_size: int = 50) -> list[Page]:
+        pages: list[Page] = []
+        start = 0
+
+        while True:
+            data = self._get_json(
+                f"/rest/api/space/{space_key}/content/page",
+                params={
+                    "depth": "root",
+                    "start": start,
+                    "limit": page_size,
+                    "expand": "version",
+                },
+            )
+            page_data = data.get("page", data)
+            results = page_data.get("results", [])
+            for result in results:
+                pages.append(self._page_from_result(result))
+
+            size = int(page_data.get("size", len(results)))
+            limit = int(page_data.get("limit", page_size))
+            if size == 0 or size < limit:
+                break
+            start += size
+
+        return pages
+
     def list_child_pages(self, page_id: str, *, page_size: int = 50) -> list[Page]:
         pages: list[Page] = []
         start = 0
@@ -116,11 +153,28 @@ class ConfluenceClient:
                     f"Native PDF export failed and REST fallback did not create a valid PDF: {exc}"
                 ) from exc
 
+    def download_combined_pdf(self, pages: list[Page], destination: Path) -> None:
+        if not pages:
+            raise PdfExportError("Cannot create a combined PDF with no pages.")
+        try:
+            sections = [(page, self.get_page_export_view(page.id)) for page in pages]
+            render_combined_html_pdf(
+                title=pages[0].title,
+                sections=sections,
+                destination=destination,
+                base_url=self.base_url,
+                url_fetcher=self._fetch_render_asset,
+            )
+        except (ConfluencePdfError, ImportError, OSError, ValueError) as exc:
+            raise PdfExportError(f"Combined PDF export failed: {exc}") from exc
+        if not destination.read_bytes().startswith(b"%PDF-"):
+            raise PdfExportError("Combined PDF export did not create a valid PDF.")
+
     def download_native_pdf(self, page_id: str, destination: Path) -> None:
         export_url = self._url(f"/spaces/flyingpdf/pdfpageexport.action?pageId={page_id}")
         headers = {"X-Atlassian-Token": "no-check", "Accept": "*/*"}
         try:
-            response = self._client.get(export_url, headers=headers, follow_redirects=False)
+            response = self._request("GET", export_url, headers=headers, follow_redirects=False)
         except httpx.HTTPError as exc:
             raise PdfExportError(f"Could not start PDF export for page {page_id}: {exc}") from exc
 
@@ -161,30 +215,31 @@ class ConfluenceClient:
 
     def _stream_pdf(self, url: str, destination: Path, page_id: str) -> None:
         try:
-            with self._client.stream("GET", url, headers={"Accept": "application/pdf"}) as response:
-                if response.status_code >= 400:
-                    raise PdfExportError(
-                        f"PDF download for page {page_id} failed with HTTP {response.status_code}."
-                    )
-                content_type = response.headers.get("content-type", "").lower()
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                temporary_destination = destination.with_suffix(destination.suffix + ".tmp")
-                with temporary_destination.open("wb") as handle:
-                    for chunk in response.iter_bytes():
-                        handle.write(chunk)
-                if not self._file_looks_like_pdf(temporary_destination):
-                    temporary_destination.unlink(missing_ok=True)
-                    raise PdfExportError(
-                        f"PDF download for page {page_id} returned {content_type or 'unknown content'} "
-                        "instead of PDF."
-                    )
-                temporary_destination.replace(destination)
+            response = self._request("GET", url, headers={"Accept": "application/pdf"})
+            if response.status_code >= 400:
+                raise PdfExportError(
+                    f"PDF download for page {page_id} failed with HTTP {response.status_code}."
+                )
+            content_type = response.headers.get("content-type", "").lower()
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            temporary_destination = destination.with_suffix(destination.suffix + ".tmp")
+            with temporary_destination.open("wb") as handle:
+                for chunk in response.iter_bytes():
+                    handle.write(chunk)
+            response.close()
+            if not self._file_looks_like_pdf(temporary_destination):
+                temporary_destination.unlink(missing_ok=True)
+                raise PdfExportError(
+                    f"PDF download for page {page_id} returned {content_type or 'unknown content'} "
+                    "instead of PDF."
+                )
+            temporary_destination.replace(destination)
         except httpx.HTTPError as exc:
             raise PdfExportError(f"Could not download PDF for page {page_id}: {exc}") from exc
 
     def _get_json(self, path: str, *, params: dict[str, Any]) -> dict[str, Any]:
         try:
-            response = self._client.get(self._url(path), params=params)
+            response = self._request("GET", self._url(path), params=params)
             response.raise_for_status()
             return response.json()
         except httpx.HTTPStatusError as exc:
@@ -224,13 +279,43 @@ class ConfluenceClient:
 
     def _fetch_render_asset(self, url: str) -> dict:
         asset_url = urljoin(self.base_url + "/", url)
-        response = self._client.get(asset_url, headers={"Accept": "*/*"})
+        response = self._request("GET", asset_url, headers={"Accept": "*/*"})
         response.raise_for_status()
         return {
             "string": response.content,
             "mime_type": response.headers.get("content-type", "").split(";", 1)[0],
             "redirected_url": str(response.url),
         }
+
+    def _request(self, method: str, url: str, **kwargs: Any) -> httpx.Response:
+        attempt = 0
+        while True:
+            self._apply_request_delay()
+            response = self._client.request(method, url, **kwargs)
+            if response.status_code != 429 or attempt >= self.max_retries:
+                return response
+            retry_delay = self._retry_delay(response, attempt)
+            response.close()
+            self._sleep(retry_delay)
+            attempt += 1
+
+    def _apply_request_delay(self) -> None:
+        if self.request_delay <= 0:
+            return
+        now = time.monotonic()
+        elapsed = now - self._last_request_at
+        if elapsed < self.request_delay:
+            self._sleep(self.request_delay - elapsed)
+        self._last_request_at = time.monotonic()
+
+    def _retry_delay(self, response: httpx.Response, attempt: int) -> float:
+        retry_after = response.headers.get("retry-after")
+        if retry_after:
+            try:
+                return max(0.0, float(retry_after))
+            except ValueError:
+                pass
+        return self.retry_backoff * (2**attempt)
 
     @staticmethod
     def _looks_like_pdf(response: httpx.Response) -> bool:
