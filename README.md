@@ -4,15 +4,24 @@
 
 # Confluence PDF Context CLI
 
-Download Confluence Data Center pages into PDF context packs for LLM workflows. The CLI
-can export one or many page titles, recurse through child pages, combine a page tree into
-a single PDF by default, or write separate PDFs when needed. It also supports bulk JSON
-configs across spaces, incremental downloads using the recorded Confluence page versions,
-space tree discovery that can generate or update bulk configs, Markdown download
-manifests, request throttling, retry backoff for rate limits, and configurable progress
-logging.
+Turn Confluence Data Center pages into clean PDF context packs for LLM workflows. The
+CLI can download one page, many named pages, or whole page trees; combine each page tree
+into a single PDF by default; generate bulk download configs from a space tree; and skip
+unchanged pages in bulk mode by comparing Confluence versions with the local manifest.
 
-## Install
+## ✨ What It Does
+
+| Need | Use |
+| --- | --- |
+| Download one page | `confluence-pdf download --space KEY --title "Page"` |
+| Download a page and all descendants | Add `--include-children` |
+| Get one PDF per page instead of a combined tree PDF | Add `--separate-pages` |
+| Download pages across multiple spaces | Use `confluence-pdf bulk --config pages.json` |
+| Skip pages already downloaded at the same version | Use bulk mode, which reads `downloaded_pages.md` |
+| Discover pages and build a bulk config | Use `confluence-pdf list-space --bulk-config pages.json` |
+| Handle rate limits | Add `--request-delay`, `--retry-backoff`, and `--max-retries` |
+
+## 📦 Install
 
 ```bash
 uv sync --dev
@@ -24,12 +33,43 @@ On macOS, the formatted fallback renderer requires WeasyPrint's native Pango lib
 brew install pango
 ```
 
-## Usage
+## 🔐 Configure Authentication
+
+Pass the Confluence URL and Personal Access Token as options:
+
+```bash
+uv run confluence-pdf download \
+  --base-url "https://confluence.example.com/confluence" \
+  --token "your-personal-access-token" \
+  --space DOC \
+  --title "Architecture Overview"
+```
+
+Or set environment variables once:
 
 ```bash
 export CONFLUENCE_BASE_URL="https://confluence.example.com/confluence"
 export CONFLUENCE_PAT="your-personal-access-token"
+```
 
+`--base-url` can be either the Confluence root URL or a context-path URL such as
+`https://host/confluence`.
+
+## 🚀 Quick Start
+
+Download one page:
+
+```bash
+uv run confluence-pdf download \
+  --space DOC \
+  --title "Architecture Overview" \
+  --output-dir ./pdfs
+```
+
+Download a page plus all descendants. By default, this writes one combined PDF for the
+root page tree:
+
+```bash
 uv run confluence-pdf download \
   --space DOC \
   --title "Architecture Overview" \
@@ -37,34 +77,49 @@ uv run confluence-pdf download \
   --output-dir ./pdfs
 ```
 
-Repeat `--title` to download multiple root pages, or pass a newline-delimited file with
-`--titles-file`.
-
-```bash
-uv run confluence-pdf download --space DOC --titles-file titles.txt --output-dir ./pdfs
-```
-
-Use `--force` to regenerate existing valid PDFs, for example after upgrading the fallback
-renderer:
-
-```bash
-uv run confluence-pdf download --space DOC --title "Architecture Overview" --output-dir ./pdfs --force
-```
-
-When using `--include-children`, the default is one combined PDF per requested root
-containing the root page plus all descendants:
+Write one PDF per page instead:
 
 ```bash
 uv run confluence-pdf download \
   --space DOC \
   --title "Architecture Overview" \
   --include-children \
+  --separate-pages \
   --output-dir ./pdfs
 ```
 
-Use `--separate-pages` to restore one PDF per page.
+Repeat `--title` for multiple root pages:
 
-For bulk downloads across spaces, create a JSON config:
+```bash
+uv run confluence-pdf download \
+  --space DOC \
+  --title "Architecture Overview" \
+  --title "ADR Index" \
+  --output-dir ./pdfs
+```
+
+Or use a newline-delimited titles file:
+
+```bash
+uv run confluence-pdf download \
+  --space DOC \
+  --titles-file titles.txt \
+  --output-dir ./pdfs
+```
+
+## 🧭 Choosing Download Options
+
+| Option | Applies to | Default | Meaning |
+| --- | --- | --- | --- |
+| `--include-children` | `download`, `bulk` config entries | Off for `download`; configurable in bulk JSON | Include all descendants, not only direct children |
+| `--combine-children` | `download`, `bulk` | On | Write one combined PDF per requested root when children are included |
+| `--separate-pages` | `download`, `bulk` | Off | Write one PDF per page instead of one combined tree PDF |
+| `--force` | `download`, `bulk` | Off | Regenerate even when an existing PDF or manifest version would normally skip work |
+| `--verbosity` | `download`, `bulk` | `quiet` for download, `normal` for bulk | Choose `quiet`, `normal`, or `verbose` progress logs |
+
+## 📚 Bulk Downloads
+
+Use bulk mode when you have a repeatable set of pages, especially across spaces:
 
 ```json
 {
@@ -76,48 +131,94 @@ For bulk downloads across spaces, create a JSON config:
 }
 ```
 
-Then run:
+Run it:
 
 ```bash
 uv run confluence-pdf bulk --config pages.json --output-dir ./pdfs
 ```
 
-Bulk mode uses each space's `downloaded_pages.md` manifest as a version cache. Before
-downloading, it resolves the current Confluence page version and compares it with the
-manifest row for that page ID. If the version is unchanged and the recorded PDF still
-exists as a valid PDF, the page is skipped unless `--force` is supplied. For combined
-child downloads, the combined PDF is skipped only when every page in that root's subtree
-is unchanged and points to the same recorded PDF. By default, each configured page is
-processed as its own group, so progress is easy to follow:
+Bulk config rules:
 
-```bash
-uv run confluence-pdf bulk --config pages.json --group-by-page
-```
-
-Use `--group-by-space` to combine pages that share the same space and `include_children`
-setting into fewer downloader runs:
+- Top-level `"include_children"` is the default for all pages in the file.
+- A page entry can override that default with its own `"include_children"` value.
+- `--group-by-page` is the default, so each configured page is processed as its own
+  progress group.
+- `--group-by-space` combines compatible entries into fewer downloader runs.
 
 ```bash
 uv run confluence-pdf bulk --config pages.json --group-by-space
 ```
 
-In bulk mode, config entries with `"include_children": true` also default to one combined
-PDF per configured root. Use `--separate-pages` to write one PDF per page instead.
+## ✅ Version-Aware Skipping
 
-Bulk mode prints emoji-prefixed progress logs for each group, each configured root title,
-and per-page progress. Control the amount of progress output with `--verbosity quiet`,
-`--verbosity normal`, or `--verbosity verbose`. `normal` is the default for bulk mode.
+Bulk mode uses each space's `downloaded_pages.md` manifest as a version cache. Before
+downloading a page, it resolves the current Confluence version and compares it with the
+manifest row for that page ID.
+
+A page is skipped when all of these are true:
+
+- The manifest contains the same page ID.
+- The manifest version matches the current Confluence version.
+- The recorded PDF still exists.
+- The recorded PDF is a valid PDF file.
+- `--force` was not supplied.
+
+For combined child downloads, the combined PDF is skipped only when every page in that
+root's subtree is unchanged and all pages point to the same recorded PDF.
+
+The single `download` command does not use the manifest as a version cache. It skips an
+existing valid destination PDF unless `--force` is supplied.
+
+## 🔎 Discover Pages and Generate Bulk Configs
+
+List a space page tree to a chosen depth. Root pages are depth 1:
+
+```bash
+uv run confluence-pdf list-space --space DOC --depth 2
+```
+
+List below a specific page title instead of the whole space:
+
+```bash
+uv run confluence-pdf list-space \
+  --space DOC \
+  --root-title "Architecture" \
+  --depth 2
+```
+
+Create or update a bulk config from the pages at the final listed depth:
+
+```bash
+uv run confluence-pdf list-space \
+  --space DOC \
+  --depth 2 \
+  --bulk-config pages.json
+```
+
+Generated entries default to `"include_children": true`, so those final-depth pages become
+subtree roots for later bulk downloads. Use `--no-bulk-include-children` when you want the
+generated config to download only the listed pages.
+
+## 📈 Progress Logs
+
+Bulk mode prints progress for each group, root title, page discovery step, download, skip,
+and summary. Use verbosity to control how noisy it is:
 
 ```bash
 uv run confluence-pdf bulk --config pages.json --verbosity verbose
 ```
 
-`verbose` also logs each parent page checked while expanding child pages, how many
-children were found there, and the descendant count discovered so far. This is useful for
-large one-group runs created with `--group-by-space`.
+| Verbosity | Best for |
+| --- | --- |
+| `quiet` | Automation where only summaries and errors matter |
+| `normal` | Day-to-day bulk downloads |
+| `verbose` | Large page trees where you want child-page traversal details |
 
-For large spaces or rate-limited Confluence instances, slow requests down and retry
-`429 Too Many Requests` responses:
+Summary output is shown in a box after each group so it is easy to scan in long runs.
+
+## 🐢 Rate Limits and Large Spaces
+
+If Confluence returns `429 Too Many Requests`, slow the run down and allow retries:
 
 ```bash
 uv run confluence-pdf bulk \
@@ -128,59 +229,54 @@ uv run confluence-pdf bulk \
   --max-retries 5
 ```
 
-`--request-delay` is the minimum delay between Confluence requests. `--retry-backoff` is
-the initial exponential backoff delay for HTTP 429 responses. If Confluence returns
-`Retry-After`, that value is used instead.
+`--request-delay` is the minimum delay between Confluence requests.
+`--retry-backoff` is the initial exponential backoff delay for HTTP 429 responses. If
+Confluence returns `Retry-After`, that value is used instead.
 
-To discover pages in a space, list the page tree to a chosen depth. Root pages are depth
-1:
+## 📁 Output Layout
 
-```bash
-uv run confluence-pdf list-space --space DOC --depth 2
+Files are written under `<output-dir>/<space>/`:
+
+```text
+pdfs/
+└── DOC/
+    ├── 0001-123456-architecture-overview-combined.pdf
+    ├── 0002-789012-adr-index-combined.pdf
+    └── downloaded_pages.md
 ```
 
-To list only below a specific page title in that space, pass `--root-title`. The selected
-page becomes depth 1 for that listing:
+Filenames include the page ID to avoid collisions:
 
-```bash
-uv run confluence-pdf list-space --space DOC --root-title "Architecture" --depth 2
+```text
+0001-123456-architecture-overview.pdf
+0001-123456-architecture-overview-combined.pdf
 ```
 
-To create or update a bulk config from the final listed depth, pass `--bulk-config`. For
-example, this lists root pages and their direct children, then writes only the depth-2
-pages into `pages.json`:
+Each space output directory includes `downloaded_pages.md`, a Markdown table keyed by page
+ID with:
 
-```bash
-uv run confluence-pdf list-space --space DOC --depth 2 --bulk-config pages.json
-```
+- page title
+- Confluence URL
+- downloaded version
+- version date
+- local PDF filename
 
-Generated entries default to `"include_children": true`, so later bulk downloads use those
-final-depth pages as subtree roots. Use `--no-bulk-include-children` to write entries that
-download only the listed pages.
+Rerunning the tool updates existing manifest rows instead of adding duplicates.
+
+## 🛠 PDF Rendering Behavior
+
+The tool first tries Confluence Data Center's native FlyingPDF export flow. If Confluence
+returns a login or MFA page instead of PDF bytes, it falls back to rendering the page's
+REST `body.export_view` HTML with WeasyPrint.
+
+The fallback renderer is designed to preserve headings, tables, inline formatting, and
+images that can be fetched through the configured PAT. Existing `.pdf` files that are
+actually HTML are detected and replaced on the next run.
+
+## 🧪 Development
 
 Run tests with:
 
 ```bash
 uv run pytest
 ```
-
-The tool writes files under `<output-dir>/<space>/` using names such as:
-
-```text
-0001-123456-architecture-overview.pdf
-```
-
-Existing files are skipped.
-
-Each space output directory also contains `downloaded_pages.md`, a Markdown table keyed by
-page ID with the page title, Confluence URL, downloaded version, version date, and local
-PDF filename. Rerunning the tool updates existing rows instead of adding duplicates. In
-`bulk` mode this file is also used to skip up-to-date pages as described above; the single
-`download` command only skips an existing valid destination PDF unless `--force` is
-supplied.
-
-If Confluence's native PDF export action returns a login or MFA page instead of PDF bytes,
-the tool falls back to rendering the page's REST `body.export_view` HTML with WeasyPrint.
-This preserves page structure such as headings, tables, inline formatting, and images that
-can be fetched through the configured PAT. Existing `.pdf` files that are actually HTML
-are detected and replaced on the next run.
