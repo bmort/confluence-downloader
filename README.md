@@ -57,7 +57,7 @@ uv run confluence-downloader --help
 ## 🤖 Codex Skill
 
 This repository includes a Codex skill for agent-assisted Confluence page review. See
-[`skills/confluence-downloader-review/README.md`](skills/confluence-downloader-review/README.md)
+[`skills/confluence-downloader/README.md`](skills/confluence-downloader/README.md)
 for skill installation and usage.
 
 ## 🔐 Configure Authentication

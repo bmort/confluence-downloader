@@ -1,4 +1,4 @@
-# Confluence Downloader Review Skill
+# Confluence Downloader Skill
 
 This Codex skill tells an agent how to use `confluence-downloader` to fetch missing or
 changed Confluence pages as local PDFs before reviewing them.
@@ -42,7 +42,7 @@ Copy the bundled skill into Codex's skills directory:
 
 ```bash
 mkdir -p "${CODEX_HOME:-$HOME/.codex}/skills"
-cp -R skills/confluence-downloader-review "${CODEX_HOME:-$HOME/.codex}/skills/"
+cp -R skills/confluence-downloader "${CODEX_HOME:-$HOME/.codex}/skills/"
 ```
 
 Restart Codex or open a new Codex session so the skill is discovered.
@@ -92,7 +92,7 @@ Run the helper from the repository root. It uses the current working directory a
 downloader repository by default:
 
 ```bash
-python skills/confluence-downloader-review/scripts/ensure_confluence_pdfs.py \
+python skills/confluence-downloader/scripts/ensure_confluence_pdfs.py \
   --config pages.json \
   --output-dir pdfs
 ```
@@ -100,7 +100,7 @@ python skills/confluence-downloader-review/scripts/ensure_confluence_pdfs.py \
 For a named page:
 
 ```bash
-python skills/confluence-downloader-review/scripts/ensure_confluence_pdfs.py \
+python skills/confluence-downloader/scripts/ensure_confluence_pdfs.py \
   --space DOC \
   --title "Architecture Overview" \
   --include-children \
@@ -110,7 +110,7 @@ python skills/confluence-downloader-review/scripts/ensure_confluence_pdfs.py \
 From any other directory, pass the clone explicitly:
 
 ```bash
-python "${CODEX_HOME:-$HOME/.codex}/skills/confluence-downloader-review/scripts/ensure_confluence_pdfs.py" \
+python "${CODEX_HOME:-$HOME/.codex}/skills/confluence-downloader/scripts/ensure_confluence_pdfs.py" \
   --repo /path/to/confluence-downloader \
   --config /path/to/confluence-downloader/pages.json \
   --output-dir /path/to/confluence-downloader/pdfs
@@ -121,7 +121,7 @@ Use `--dry-run` to preview the downloader command without contacting Confluence:
 ```bash
 CONFLUENCE_BASE_URL=https://confluence.example.com/confluence \
 CONFLUENCE_PAT=dummy \
-python skills/confluence-downloader-review/scripts/ensure_confluence_pdfs.py \
+python skills/confluence-downloader/scripts/ensure_confluence_pdfs.py \
   --config pages.json \
   --output-dir pdfs \
   --dry-run
@@ -139,21 +139,21 @@ from the output directory.
 Ask Codex to use the skill by name and include enough Confluence context for the downloader:
 
 ```text
-Use the confluence-downloader-review skill to download the DOC page "Architecture Overview"
+Use the confluence-downloader skill to download the DOC page "Architecture Overview"
 with its children if needed, then review the resulting PDFs for outdated decisions.
 ```
 
 For a repeatable bulk config:
 
 ```text
-Use the confluence-downloader-review skill with pages.json. Pull any missing or changed
+Use the confluence-downloader skill with pages.json. Pull any missing or changed
 Confluence PDFs into ./pdfs, then summarize the key risks across the downloaded pages.
 ```
 
 For a subtree discovery workflow:
 
 ```text
-Use the confluence-downloader-review skill to list the DOC space below "Architecture" to
+Use the confluence-downloader skill to list the DOC space below "Architecture" to
 depth 2, create a bulk config from those pages, download the PDFs, and review them for
 follow-up actions.
 ```

@@ -1,9 +1,9 @@
 ---
-name: confluence-downloader-review
+name: confluence-downloader
 description: Fetch Confluence Data Center pages as local PDFs with the confluence-downloader CLI before reviewing them with an agent. Use when the user asks to review, summarize, audit, compare, analyze, or work from Confluence pages, page trees, spaces, or bulk page configs, especially when pages may not already be downloaded locally and should be pulled only if missing or changed.
 ---
 
-# Confluence Downloader Review
+# Confluence Downloader
 
 ## Core Workflow
 
@@ -52,13 +52,13 @@ Use `scripts/ensure_confluence_pdfs.py` for repeatable setup. It wraps the CLI, 
 Examples:
 
 ```bash
-python skills/confluence-downloader-review/scripts/ensure_confluence_pdfs.py \
+python skills/confluence-downloader/scripts/ensure_confluence_pdfs.py \
   --config pages.json \
   --output-dir pdfs
 ```
 
 ```bash
-python skills/confluence-downloader-review/scripts/ensure_confluence_pdfs.py \
+python skills/confluence-downloader/scripts/ensure_confluence_pdfs.py \
   --space DOC \
   --title "Architecture Overview" \
   --include-children \
