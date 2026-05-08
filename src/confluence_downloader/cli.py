@@ -14,17 +14,21 @@ from .errors import ConfigError, ConfluencePdfError
 from .tree import TreePage, list_space_tree
 from .utils import merge_titles, normalize_base_url
 
-app = typer.Typer(help="Download Confluence Data Center pages as PDFs.")
+app = typer.Typer(help="Download Confluence Data Center pages as PDFs.", invoke_without_command=True)
 
 
 @app.callback()
-def main() -> None:
+def main(ctx: typer.Context) -> None:
     """Download Confluence Data Center pages as PDFs."""
+    if ctx.invoked_subcommand is None:
+        typer.echo(ctx.get_help())
+        raise typer.Exit()
 
 
 @app.command()
 def download(
-    space: Annotated[str, typer.Option("--space", help="Confluence space key.")],
+    ctx: typer.Context,
+    space: Annotated[str | None, typer.Option("--space", help="Confluence space key.")] = None,
     title: Annotated[
         list[str] | None,
         typer.Option("--title", help="Confluence page title. Repeat for multiple pages."),
@@ -78,9 +82,15 @@ def download(
     ] = "quiet",
 ) -> None:
     """Download selected Confluence pages as individual PDF files."""
+    if not ctx.args and ctx.params.get("space") is None:
+        typer.echo(ctx.get_help())
+        raise typer.Exit()
+
     try:
         resolved_base_url = _required_base_url(base_url)
         resolved_token = _required_token(token)
+        if space is None:
+            raise ConfigError("Provide --space.")
         titles = merge_titles(title, titles_file)
         if not titles:
             raise ConfigError("Provide at least one --title or --titles-file entry.")
@@ -113,10 +123,11 @@ def download(
 
 @app.command()
 def bulk(
+    ctx: typer.Context,
     config: Annotated[
-        Path,
+        Path | None,
         typer.Option("--config", exists=True, dir_okay=False, help="JSON bulk download configuration."),
-    ],
+    ] = None,
     output_dir: Annotated[
         Path,
         typer.Option("--output-dir", file_okay=False, help="Directory where PDFs are written."),
@@ -165,9 +176,15 @@ def bulk(
     ] = "normal",
 ) -> None:
     """Download pages from a JSON config, skipping unchanged versions."""
+    if not ctx.args and config is None:
+        typer.echo(ctx.get_help())
+        raise typer.Exit()
+
     try:
         resolved_base_url = _required_base_url(base_url)
         resolved_token = _required_token(token)
+        if config is None:
+            raise ConfigError("Provide --config.")
         requests = read_bulk_config(config)
 
         groups = _group_bulk_requests(requests, group_by_page=group_by_page)
@@ -220,11 +237,12 @@ def bulk(
 
 @app.command("list-space")
 def list_space(
-    space: Annotated[str, typer.Option("--space", help="Confluence space key.")],
+    ctx: typer.Context,
+    space: Annotated[str | None, typer.Option("--space", help="Confluence space key.")] = None,
     depth: Annotated[
-        int,
+        int | None,
         typer.Option("--depth", min=1, help="Tree depth to list. Root pages are depth 1."),
-    ],
+    ] = None,
     root_title: Annotated[
         str | None,
         typer.Option(
@@ -269,9 +287,17 @@ def list_space(
     ] = 3,
 ) -> None:
     """List a space page tree and optionally update a bulk config from the final depth."""
+    if not ctx.args and ctx.params.get("space") is None and depth is None:
+        typer.echo(ctx.get_help())
+        raise typer.Exit()
+
     try:
         resolved_base_url = _required_base_url(base_url)
         resolved_token = _required_token(token)
+        if space is None:
+            raise ConfigError("Provide --space.")
+        if depth is None:
+            raise ConfigError("Provide --depth.")
 
         with ConfluenceClient(
             resolved_base_url,
@@ -305,6 +331,74 @@ def list_space(
             )
             typer.echo(f"Bulk config updated: {bulk_config}")
             typer.echo(f"Final-depth pages written: {len(final_depth_pages)}")
+    except ConfluencePdfError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+
+@app.command()
+def search(
+    ctx: typer.Context,
+    query: Annotated[
+        str | None,
+        typer.Argument(help="Search string to match against Confluence page titles."),
+    ] = None,
+    space: Annotated[
+        str | None,
+        typer.Option("--space", help="Restrict search to this Confluence space key."),
+    ] = None,
+    limit: Annotated[
+        int,
+        typer.Option("--limit", min=1, max=100, help="Maximum number of matches to return."),
+    ] = 10,
+    base_url: Annotated[
+        str | None,
+        typer.Option("--base-url", envvar="CONFLUENCE_BASE_URL", help="Confluence base URL."),
+    ] = None,
+    token: Annotated[
+        str | None,
+        typer.Option("--token", envvar="CONFLUENCE_PAT", help="Confluence Personal Access Token."),
+    ] = None,
+    request_delay: Annotated[
+        float,
+        typer.Option("--request-delay", min=0.0, help="Minimum delay in seconds between Confluence requests."),
+    ] = 0.0,
+    retry_backoff: Annotated[
+        float,
+        typer.Option("--retry-backoff", min=0.0, help="Initial 429 retry backoff in seconds."),
+    ] = 1.0,
+    max_retries: Annotated[
+        int,
+        typer.Option("--max-retries", min=0, help="Maximum number of retries for HTTP 429 responses."),
+    ] = 3,
+) -> None:
+    """Search Confluence page titles for close matches."""
+    if query is None:
+        typer.echo(ctx.get_help())
+        raise typer.Exit()
+
+    try:
+        resolved_base_url = _required_base_url(base_url)
+        resolved_token = _required_token(token)
+        with ConfluenceClient(
+            resolved_base_url,
+            resolved_token,
+            request_delay=request_delay,
+            retry_backoff=retry_backoff,
+            max_retries=max_retries,
+        ) as client:
+            pages = client.search_pages_by_title(query, space_key=space, limit=limit)
+
+        if not pages:
+            scope = f" in space {space}" if space else ""
+            typer.echo(f'No matching pages found for "{query}"{scope}.')
+            return
+
+        rows = [
+            ("Page ID", "Space", "Title", "URL"),
+            *[(page.id, page.space, page.title, page.url) for page in pages],
+        ]
+        _print_table(rows)
     except ConfluencePdfError as exc:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
@@ -348,6 +442,14 @@ def _print_box(title: str, rows: list[tuple[str, str]]) -> None:
     for row in rendered_rows:
         typer.echo(f"│ {row}{' ' * (width - len(row))} │")
     typer.echo(f"└{'─' * (width + 2)}┘")
+
+
+def _print_table(rows: list[tuple[str, ...]]) -> None:
+    widths = [max(len(row[index]) for row in rows) for index in range(len(rows[0]))]
+    for row_index, row in enumerate(rows):
+        typer.echo("  ".join(value.ljust(widths[index]) for index, value in enumerate(row)))
+        if row_index == 0:
+            typer.echo("  ".join("-" * width for width in widths))
 
 
 def _make_logger(verbosity: str) -> LogFn | None:
@@ -436,8 +538,10 @@ def _group_bulk_requests(requests: list[BulkPageRequest], *, group_by_page: bool
 
 def _format_tree_page(tree_page: TreePage) -> str:
     indent = "  " * (tree_page.depth - 1)
-    version = "" if tree_page.page.version is None else f" v{tree_page.page.version}"
-    return f"{indent}- {tree_page.page.title} [{tree_page.page.id}]{version}"
+    metadata = f"id={tree_page.page.id}"
+    if tree_page.page.version is not None:
+        metadata = f"{metadata} version={tree_page.page.version}"
+    return f'{indent}- "{tree_page.page.title}" | {metadata}'
 
 
 if __name__ == "__main__":

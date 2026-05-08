@@ -18,7 +18,7 @@ Install `uv` if it is not already available:
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-Install the CLI:
+Install the project dependencies:
 
 ```bash
 uv sync --dev
@@ -36,6 +36,20 @@ Check the CLI:
 uv run confluence-downloader --help
 ```
 
+Install the CLI as a user-level executable so Codex, Claude Code, and other agent harnesses
+can call `confluence-downloader` from `PATH`:
+
+```bash
+uv tool install --force --editable .
+```
+
+Verify the installed executable:
+
+```bash
+command -v confluence-downloader
+confluence-downloader --help
+```
+
 ## Install the Skill
 
 Copy the bundled skill into Codex's skills directory:
@@ -45,7 +59,27 @@ mkdir -p "${CODEX_HOME:-$HOME/.codex}/skills"
 cp -R skills/confluence-downloader "${CODEX_HOME:-$HOME/.codex}/skills/"
 ```
 
-Restart Codex or open a new Codex session so the skill is discovered.
+Copy the same skill into Claude Code's skills directory:
+
+```bash
+mkdir -p "$HOME/.claude/skills"
+cp -R skills/confluence-downloader "$HOME/.claude/skills/"
+```
+
+Restart Codex or Claude Code, or open a new session, so the agent reloads available skills.
+
+Verify the files were installed:
+
+```bash
+sed -n '1,5p' "${CODEX_HOME:-$HOME/.codex}/skills/confluence-downloader/SKILL.md"
+sed -n '1,5p' "$HOME/.claude/skills/confluence-downloader/SKILL.md"
+```
+
+Both should show:
+
+```yaml
+name: confluence-downloader
+```
 
 ## Configure Authentication
 
@@ -107,6 +141,13 @@ python skills/confluence-downloader/scripts/ensure_confluence_pdfs.py \
   --output-dir pdfs
 ```
 
+If you only know an approximate title, search first and use the exact returned title in the
+helper command:
+
+```bash
+uv run confluence-downloader search "architecture overview" --space DOC --limit 5
+```
+
 From any other directory, pass the clone explicitly:
 
 ```bash
@@ -156,4 +197,12 @@ For a subtree discovery workflow:
 Use the confluence-downloader skill to list the DOC space below "Architecture" to
 depth 2, create a bulk config from those pages, download the PDFs, and review them for
 follow-up actions.
+```
+
+For an approximate title:
+
+```text
+Use the confluence-downloader skill to search the DOC space for pages matching
+"architecture overview", download the best matching page with its children, and summarize
+the resulting PDFs.
 ```

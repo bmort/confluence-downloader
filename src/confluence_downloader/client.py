@@ -69,6 +69,32 @@ class ConfluenceClient:
             raise PageLookupError(f'More than one page matched title "{title}" in space {space_key}.')
         return self._page_from_result(results[0])
 
+    def search_pages_by_title(
+        self,
+        query: str,
+        *,
+        space_key: str | None = None,
+        limit: int = 10,
+    ) -> list[Page]:
+        cql_parts = ["type = page", f'title ~ "{_escape_cql_string(query)}"']
+        if space_key:
+            cql_parts.append(f'space = "{_escape_cql_string(space_key)}"')
+        data = self._get_json(
+            "/rest/api/search",
+            params={
+                "cql": " and ".join(cql_parts),
+                "limit": limit,
+                "expand": "content.version,content.space",
+            },
+        )
+        pages: list[Page] = []
+        for result in data.get("results", []):
+            content = result.get("content", result)
+            if content.get("type") not in {None, "page"}:
+                continue
+            pages.append(self._page_from_result(content))
+        return pages
+
     def iter_descendants(self, root: Page, *, page_size: int = 50) -> list[Page]:
         descendants: list[Page] = []
         stack = [root]
@@ -262,12 +288,15 @@ class ConfluenceClient:
         version_number = version.get("number")
         if not isinstance(version_number, int):
             version_number = None
+        space = result.get("space", {})
+        space_key = space.get("key", "")
         return Page(
             id=page_id,
             title=str(result["title"]),
             url=self._page_url(str(webui), page_id) if webui else self._url(f"/pages/viewpage.action?pageId={page_id}"),
             version=version_number,
             version_when=str(version.get("when", "")),
+            space=str(space_key),
         )
 
     def _page_url(self, webui: str, page_id: str) -> str:
@@ -334,3 +363,7 @@ class ConfluenceClient:
                 return handle.read(5) == b"%PDF-"
         except OSError:
             return False
+
+
+def _escape_cql_string(value: str) -> str:
+    return value.replace("\\", "\\\\").replace('"', '\\"')

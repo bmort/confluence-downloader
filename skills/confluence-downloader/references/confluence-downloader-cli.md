@@ -63,6 +63,21 @@ Direct download skips an existing valid destination PDF unless `--force` is used
 
 ## Discovery
 
+Use `search` when the user has an approximate page title:
+
+```bash
+DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib uv run confluence-downloader search "architecture overview"
+```
+
+Restrict matching to one space:
+
+```bash
+DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib uv run confluence-downloader search "architecture overview" --space DOC --limit 5
+```
+
+Search output is a table with Page ID, Space, Title, and URL. Use the exact returned title
+when calling `download` or creating a bulk config.
+
 Use `list-space` when the user describes a space or subtree but not exact page titles:
 
 ```bash
@@ -76,6 +91,16 @@ DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib uv run confluence-downloader list-s
 ```
 
 Add `--root-title "Title"` to start below a page. Use `--no-bulk-include-children` when generated config entries should download only those listed pages.
+
+`list-space` output quotes titles and separates metadata with `|`, for example:
+
+```text
+- "Architecture [draft]" | id=123 version=7
+  - "Child Page" | id=456 version=2
+```
+
+Treat the text inside double quotes as the page title. The `id=` and `version=` fields are
+metadata, not part of the title.
 
 ## Output Layout
 

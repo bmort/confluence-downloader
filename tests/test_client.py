@@ -79,6 +79,52 @@ def test_resolve_page_by_title_raises_on_auth_failure() -> None:
             client.resolve_page_by_title("DOC", "Root")
 
 
+def test_search_pages_by_title_builds_cql_with_space_filter() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/confluence/rest/api/search"
+        assert request.url.params["cql"] == 'type = page and title ~ "arch overview" and space = "DOC"'
+        assert request.url.params["limit"] == "5"
+        assert request.url.params["expand"] == "content.version,content.space"
+        return httpx.Response(
+            200,
+            json={
+                "results": [
+                    {
+                        "content": {
+                            "id": "123",
+                            "type": "page",
+                            "title": "Architecture Overview",
+                            "_links": {"webui": "/display/DOC/Architecture+Overview"},
+                            "space": {"key": "DOC"},
+                            "version": {"number": 4, "when": "2026-05-01T08:30:00.000Z"},
+                        }
+                    }
+                ]
+            },
+        )
+
+    with make_client(handler) as client:
+        assert client.search_pages_by_title("arch overview", space_key="DOC", limit=5) == [
+            Page(
+                id="123",
+                title="Architecture Overview",
+                url="https://confluence.example.test/confluence/display/DOC/Architecture+Overview",
+                version=4,
+                version_when="2026-05-01T08:30:00.000Z",
+                space="DOC",
+            )
+        ]
+
+
+def test_search_pages_by_title_escapes_cql_strings() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.params["cql"] == 'type = page and title ~ "say \\"hello\\"" and space = "DOC\\\\TEAM"'
+        return httpx.Response(200, json={"results": []})
+
+    with make_client(handler) as client:
+        assert client.search_pages_by_title('say "hello"', space_key="DOC\\TEAM") == []
+
+
 def test_get_json_retries_http_429_with_retry_after() -> None:
     calls = 0
     sleeps = []

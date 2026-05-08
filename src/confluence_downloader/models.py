@@ -10,3 +10,4 @@ class Page:
     url: str = ""
     version: int | None = None
     version_when: str = ""
+    space: str = ""

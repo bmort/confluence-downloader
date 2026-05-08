@@ -19,6 +19,7 @@ unchanged pages in bulk mode by comparing Confluence versions with the local man
 | Download pages across multiple spaces               | Use `confluence-downloader bulk --config pages.json`                 |
 | Skip pages already downloaded at the same version   | Use bulk mode, which reads `downloaded_pages.md`              |
 | Discover pages and build a bulk config              | Use `confluence-downloader list-space --bulk-config pages.json`      |
+| Search for matching page titles                     | Use `confluence-downloader search "architecture" --space DOC` |
 | Handle rate limits                                  | Add `--request-delay`, `--retry-backoff`, and `--max-retries` |
 
 ## 📦 Install
@@ -197,6 +198,24 @@ The single `download` command does not use the manifest as a version cache. It s
 existing valid destination PDF unless `--force` is supplied.
 
 ## 🔎 Discover Pages and Generate Bulk Configs
+
+Search for pages whose titles closely match a string:
+
+```bash
+uv run confluence-downloader search "architecture overview"
+```
+
+Restrict the search to one space:
+
+```bash
+uv run confluence-downloader search "architecture overview" --space DOC
+```
+
+Limit the number of returned matches:
+
+```bash
+uv run confluence-downloader search "architecture overview" --space DOC --limit 5
+```
 
 List a space page tree to a chosen depth. Root pages are depth 1:
 

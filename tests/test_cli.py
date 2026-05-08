@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 import confluence_downloader.cli as cli
@@ -14,8 +15,38 @@ from confluence_downloader.tree import TreePage
 runner = CliRunner()
 
 
+def test_cli_without_arguments_shows_help() -> None:
+    result = runner.invoke(app, [], prog_name="confluence-downloader")
+
+    assert result.exit_code == 0
+    assert "Usage:" in result.output
+    assert "confluence-downloader" in result.output
+    assert "download" in result.output
+    assert "bulk" in result.output
+    assert "list-space" in result.output
+
+
+@pytest.mark.parametrize(
+    ("command", "expected"),
+    [
+        ("download", "Download selected Confluence pages"),
+        ("bulk", "Download pages from a JSON config"),
+        ("list-space", "List a space page tree"),
+        ("search", "Search Confluence page titles"),
+    ],
+)
+def test_cli_subcommands_without_arguments_show_help(command: str, expected: str) -> None:
+    result = runner.invoke(app, [command], prog_name="confluence-downloader")
+
+    assert result.exit_code == 0
+    assert "Usage:" in result.output
+    assert f"confluence-downloader {command}" in result.output
+    assert expected in result.output
+
+
 class FakeConfluenceClient:
     last_kwargs = {}
+    search_calls = []
 
     def __init__(self, base_url: str, token: str, **kwargs) -> None:
         self.base_url = base_url
@@ -27,6 +58,19 @@ class FakeConfluenceClient:
 
     def __exit__(self, *exc_info: object) -> None:
         return None
+
+    def search_pages_by_title(self, query: str, *, space_key: str | None = None, limit: int = 10) -> list[Page]:
+        FakeConfluenceClient.search_calls.append(
+            {"query": query, "space_key": space_key, "limit": limit}
+        )
+        return [
+            Page(
+                id="123",
+                title="Architecture Overview",
+                url="https://confluence.example.test/display/DOC/Architecture+Overview",
+                space="DOC",
+            )
+        ]
 
 
 class FakeDownloader:
@@ -40,6 +84,48 @@ class FakeDownloader:
         FakeDownloader.last_call = kwargs
         FakeDownloader.calls.append(kwargs)
         return DownloadSummary(roots_requested=len(kwargs["titles"]), pages_found=len(kwargs["titles"]))
+
+
+def test_cli_search_uses_query_and_space_filter(monkeypatch) -> None:
+    FakeConfluenceClient.search_calls = []
+    monkeypatch.setenv("CONFLUENCE_BASE_URL", "https://confluence.example.test")
+    monkeypatch.setenv("CONFLUENCE_PAT", "env-token")
+    monkeypatch.setattr(cli, "ConfluenceClient", FakeConfluenceClient)
+
+    result = runner.invoke(
+        app,
+        [
+            "search",
+            "arch overview",
+            "--space",
+            "DOC",
+            "--limit",
+            "5",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert FakeConfluenceClient.search_calls == [
+        {"query": "arch overview", "space_key": "DOC", "limit": 5}
+    ]
+    assert "Page ID" in result.output
+    assert "Architecture Overview" in result.output
+    assert "https://confluence.example.test/display/DOC/Architecture+Overview" in result.output
+
+
+def test_cli_search_reports_no_matches(monkeypatch) -> None:
+    class NoMatchClient(FakeConfluenceClient):
+        def search_pages_by_title(self, query: str, *, space_key: str | None = None, limit: int = 10) -> list[Page]:
+            return []
+
+    monkeypatch.setenv("CONFLUENCE_BASE_URL", "https://confluence.example.test")
+    monkeypatch.setenv("CONFLUENCE_PAT", "env-token")
+    monkeypatch.setattr(cli, "ConfluenceClient", NoMatchClient)
+
+    result = runner.invoke(app, ["search", "missing", "--space", "DOC"])
+
+    assert result.exit_code == 0
+    assert 'No matching pages found for "missing" in space DOC.' in result.output
 
 
 def test_cli_uses_env_config_and_repeated_titles(monkeypatch, tmp_path: Path) -> None:
@@ -272,7 +358,7 @@ def test_cli_list_space_updates_bulk_config(monkeypatch, tmp_path: Path) -> None
         "list_space_tree",
         lambda client, space_key, max_depth, root_title=None: [
             TreePage(page=Page(id="1", title="Root", version=1), depth=1, path=("Root",)),
-            TreePage(page=Page(id="2", title="Child", version=3), depth=2, path=("Root", "Child")),
+            TreePage(page=Page(id="2", title="Child [2]", version=3), depth=2, path=("Root", "Child [2]")),
         ],
     )
 
@@ -291,10 +377,10 @@ def test_cli_list_space_updates_bulk_config(monkeypatch, tmp_path: Path) -> None
     )
 
     assert result.exit_code == 0
-    assert "- Root [1] v1" in result.output
-    assert "  - Child [2] v3" in result.output
+    assert '- "Root" | id=1 version=1' in result.output
+    assert '  - "Child [2]" | id=2 version=3' in result.output
     assert '"space": "DOC"' in config.read_text(encoding="utf-8")
-    assert '"title": "Child"' in config.read_text(encoding="utf-8")
+    assert '"title": "Child [2]"' in config.read_text(encoding="utf-8")
     assert '"include_children": false' in config.read_text(encoding="utf-8")
 
 
