@@ -55,9 +55,10 @@ Check the CLI is available:
 uv run confluence-downloader --help
 ```
 
-## 🤖 Codex Skill
+## 🤖 Agent Skill
 
-This repository includes a Codex skill for agent-assisted Confluence page review. See
+This repository includes an agent skill for Codex and Claude Code to support
+Confluence page review. See
 [`skills/confluence-downloader/README.md`](skills/confluence-downloader/README.md)
 for skill installation and usage.
 

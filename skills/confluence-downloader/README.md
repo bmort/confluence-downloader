@@ -1,7 +1,8 @@
 # Confluence Downloader Skill
 
-This Codex skill tells an agent how to use `confluence-downloader` to fetch missing or
-changed Confluence pages as local PDFs before reviewing them.
+This reusable agent skill tells Codex, Claude Code, or another compatible harness how to
+use `confluence-downloader` to fetch missing or changed Confluence pages as local PDFs
+before reviewing them.
 
 ## Install from a Fresh Machine
 
@@ -83,14 +84,15 @@ name: confluence-downloader
 
 ## Configure Authentication
 
-Set Confluence credentials in the shell or environment where Codex will run the helper:
+Set Confluence credentials in the shell or environment where the agent harness will run
+the helper:
 
 ```bash
 export CONFLUENCE_BASE_URL="https://confluence.example.com/confluence"
 export CONFLUENCE_PAT="your-personal-access-token"
 ```
 
-For Codex or another agent harness running commands in a sandbox, the important part is
+For Codex, Claude Code, or another agent harness running commands in a sandbox, the important part is
 that these variables must exist inside the sandboxed command environment, not only in a
 separate terminal tab. Prefer environment variables or a harness secret manager over
 putting tokens in prompts, config files, or command-line flags.
@@ -170,14 +172,14 @@ python skills/confluence-downloader/scripts/ensure_confluence_pdfs.py \
 
 ## Agent Workflow
 
-When the skill is active, ask Codex to review Confluence material and provide the page
+When the skill is active, ask the agent to review Confluence material and provide the page
 space/title or a bulk config. The agent should use existing PDFs when possible, call the
 downloader only for missing or changed pages, then review PDFs and `downloaded_pages.md`
 from the output directory.
 
-## Example Codex Prompts
+## Example Agent Prompts
 
-Ask Codex to use the skill by name and include enough Confluence context for the downloader:
+Ask the agent to use the skill by name and include enough Confluence context for the downloader:
 
 ```text
 Use the confluence-downloader skill to download the DOC page "Architecture Overview"
