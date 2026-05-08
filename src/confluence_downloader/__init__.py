@@ -1,4 +1,4 @@
-"""Confluence PDF context downloader."""
+"""Confluence downloader."""
 
 __all__ = ["__version__"]
 

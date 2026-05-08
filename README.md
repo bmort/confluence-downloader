@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="assets/confluence-pdf-context-logo.png" alt="Confluence PDF Context CLI logo" width="400">
+  <img src="assets/confluence-downloader-logo.png" alt="Confluence Downloader CLI logo" width="400">
 </p>
 
-# Confluence PDF Downloader
+# Confluence Downloader
 
 Turn Confluence Data Center pages into clean PDF context packs for LLM workflows. The CLI
 can download one page, many named pages, or whole page trees; combine each page tree into
@@ -13,15 +13,30 @@ unchanged pages in bulk mode by comparing Confluence versions with the local man
 
 | Need                                                | Use                                                           |
 | --------------------------------------------------- | ------------------------------------------------------------- |
-| Download one page                                   | `confluence-pdf download --space KEY --title "Page"`          |
+| Download one page                                   | `confluence-downloader download --space KEY --title "Page"`          |
 | Download a page and all descendants                 | Add `--include-children`                                      |
 | Get one PDF per page instead of a combined tree PDF | Add `--separate-pages`                                        |
-| Download pages across multiple spaces               | Use `confluence-pdf bulk --config pages.json`                 |
+| Download pages across multiple spaces               | Use `confluence-downloader bulk --config pages.json`                 |
 | Skip pages already downloaded at the same version   | Use bulk mode, which reads `downloaded_pages.md`              |
-| Discover pages and build a bulk config              | Use `confluence-pdf list-space --bulk-config pages.json`      |
+| Discover pages and build a bulk config              | Use `confluence-downloader list-space --bulk-config pages.json`      |
 | Handle rate limits                                  | Add `--request-delay`, `--retry-backoff`, and `--max-retries` |
 
 ## 📦 Install
+
+Install from a fresh machine by cloning this repository first:
+
+```bash
+git clone git@gitlab.com:benmort/confluence-downloader.git
+cd confluence-downloader
+```
+
+Install `uv` if it is not already available:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+Install the CLI and development dependencies:
 
 ```bash
 uv sync --dev
@@ -33,12 +48,24 @@ On macOS, the formatted fallback renderer requires WeasyPrint's native Pango lib
 brew install pango
 ```
 
+Check the CLI is available:
+
+```bash
+uv run confluence-downloader --help
+```
+
+## 🤖 Codex Skill
+
+This repository includes a Codex skill for agent-assisted Confluence page review. See
+[`skills/confluence-downloader-review/README.md`](skills/confluence-downloader-review/README.md)
+for skill installation and usage.
+
 ## 🔐 Configure Authentication
 
 Pass the Confluence URL and Personal Access Token as options:
 
 ```bash
-uv run confluence-pdf download \
+uv run confluence-downloader download \
   --base-url "https://confluence.example.com/confluence" \
   --token "your-personal-access-token" \
   --space DOC \
@@ -60,7 +87,7 @@ export CONFLUENCE_PAT="your-personal-access-token"
 Download one page:
 
 ```bash
-uv run confluence-pdf download \
+uv run confluence-downloader download \
   --space DOC \
   --title "Architecture Overview" \
   --output-dir ./pdfs
@@ -70,7 +97,7 @@ Download a page plus all descendants. By default, this writes one combined PDF f
 root page tree:
 
 ```bash
-uv run confluence-pdf download \
+uv run confluence-downloader download \
   --space DOC \
   --title "Architecture Overview" \
   --include-children \
@@ -80,7 +107,7 @@ uv run confluence-pdf download \
 Write one PDF per page instead:
 
 ```bash
-uv run confluence-pdf download \
+uv run confluence-downloader download \
   --space DOC \
   --title "Architecture Overview" \
   --include-children \
@@ -91,7 +118,7 @@ uv run confluence-pdf download \
 Repeat `--title` for multiple root pages:
 
 ```bash
-uv run confluence-pdf download \
+uv run confluence-downloader download \
   --space DOC \
   --title "Architecture Overview" \
   --title "ADR Index" \
@@ -101,7 +128,7 @@ uv run confluence-pdf download \
 Or use a newline-delimited titles file:
 
 ```bash
-uv run confluence-pdf download \
+uv run confluence-downloader download \
   --space DOC \
   --titles-file titles.txt \
   --output-dir ./pdfs
@@ -134,7 +161,7 @@ Use bulk mode when you have a repeatable set of pages, especially across spaces:
 Run it:
 
 ```bash
-uv run confluence-pdf bulk --config pages.json --output-dir ./pdfs
+uv run confluence-downloader bulk --config pages.json --output-dir ./pdfs
 ```
 
 Bulk config rules:
@@ -146,7 +173,7 @@ Bulk config rules:
 - `--group-by-space` combines compatible entries into fewer downloader runs.
 
 ```bash
-uv run confluence-pdf bulk --config pages.json --group-by-space
+uv run confluence-downloader bulk --config pages.json --group-by-space
 ```
 
 ## ✅ Version-Aware Skipping
@@ -174,13 +201,13 @@ existing valid destination PDF unless `--force` is supplied.
 List a space page tree to a chosen depth. Root pages are depth 1:
 
 ```bash
-uv run confluence-pdf list-space --space DOC --depth 2
+uv run confluence-downloader list-space --space DOC --depth 2
 ```
 
 List below a specific page title instead of the whole space:
 
 ```bash
-uv run confluence-pdf list-space \
+uv run confluence-downloader list-space \
   --space DOC \
   --root-title "Architecture" \
   --depth 2
@@ -189,7 +216,7 @@ uv run confluence-pdf list-space \
 Create or update a bulk config from the pages at the final listed depth:
 
 ```bash
-uv run confluence-pdf list-space \
+uv run confluence-downloader list-space \
   --space DOC \
   --depth 2 \
   --bulk-config pages.json
@@ -205,7 +232,7 @@ Bulk mode prints progress for each group, root title, page discovery step, downl
 and summary. Use verbosity to control how noisy it is:
 
 ```bash
-uv run confluence-pdf bulk --config pages.json --verbosity verbose
+uv run confluence-downloader bulk --config pages.json --verbosity verbose
 ```
 
 | Verbosity | Best for                                                     |
@@ -221,7 +248,7 @@ Summary output is shown in a box after each group so it is easy to scan in long 
 If Confluence returns `429 Too Many Requests`, slow the run down and allow retries:
 
 ```bash
-uv run confluence-pdf bulk \
+uv run confluence-downloader bulk \
   --config pages.json \
   --output-dir ./pdfs \
   --request-delay 0.25 \

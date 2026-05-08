@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "confluence-pdf-context"
+name = "confluence-downloader"
 version = "0.1.0"
 description = "Download Confluence Data Center pages as PDFs for LLM context."
 readme = "README.md"
@@ -15,7 +15,7 @@ dependencies = [
 ]
 
 [project.scripts]
-confluence-pdf = "confluence_pdf.cli:app"
+confluence-downloader = "confluence_downloader.cli:app"
 
 [dependency-groups]
 dev = [

@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from confluence_pdf.manifest import ManifestRecord, read_manifest_entries, update_manifest
-from confluence_pdf.models import Page
+from confluence_downloader.manifest import ManifestRecord, read_manifest_entries, update_manifest
+from confluence_downloader.models import Page
 
 
 def test_update_manifest_writes_download_metadata(tmp_path: Path) -> None:

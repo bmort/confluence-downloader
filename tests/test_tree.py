@@ -1,5 +1,5 @@
-from confluence_pdf.models import Page
-from confluence_pdf.tree import list_space_tree
+from confluence_downloader.models import Page
+from confluence_downloader.tree import list_space_tree
 
 
 class FakeTreeClient:

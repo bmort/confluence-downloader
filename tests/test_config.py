@@ -2,8 +2,8 @@ from pathlib import Path
 
 import pytest
 
-from confluence_pdf.config import BulkPageRequest, read_bulk_config, update_bulk_config
-from confluence_pdf.errors import ConfigError
+from confluence_downloader.config import BulkPageRequest, read_bulk_config, update_bulk_config
+from confluence_downloader.errors import ConfigError
 
 
 def test_read_bulk_config_accepts_pages_object(tmp_path: Path) -> None:

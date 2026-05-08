@@ -2,8 +2,8 @@ from pathlib import Path
 
 import pytest
 
-from confluence_pdf.errors import ConfigError
-from confluence_pdf.utils import merge_titles, normalize_base_url, slugify_title
+from confluence_downloader.errors import ConfigError
+from confluence_downloader.utils import merge_titles, normalize_base_url, slugify_title
 
 
 def test_normalize_base_url_removes_trailing_slashes() -> None:

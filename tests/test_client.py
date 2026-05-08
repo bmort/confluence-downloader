@@ -5,9 +5,9 @@ from pathlib import Path
 import httpx
 import pytest
 
-from confluence_pdf.client import ConfluenceClient
-from confluence_pdf.errors import ConfluenceApiError, PageLookupError, PdfExportError
-from confluence_pdf.models import Page
+from confluence_downloader.client import ConfluenceClient
+from confluence_downloader.errors import ConfluenceApiError, PageLookupError, PdfExportError
+from confluence_downloader.models import Page
 
 
 def make_client(handler) -> ConfluenceClient:

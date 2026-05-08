@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from confluence_pdf.downloader import PdfDownloader, build_pdf_filename
-from confluence_pdf.models import Page
+from confluence_downloader.downloader import PdfDownloader, build_pdf_filename
+from confluence_downloader.models import Page
 
 
 class FakeClient:

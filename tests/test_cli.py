@@ -4,11 +4,11 @@ from pathlib import Path
 
 from typer.testing import CliRunner
 
-import confluence_pdf.cli as cli
-from confluence_pdf.cli import app
-from confluence_pdf.downloader import DownloadSummary
-from confluence_pdf.models import Page
-from confluence_pdf.tree import TreePage
+import confluence_downloader.cli as cli
+from confluence_downloader.cli import app
+from confluence_downloader.downloader import DownloadSummary
+from confluence_downloader.models import Page
+from confluence_downloader.tree import TreePage
 
 
 runner = CliRunner()

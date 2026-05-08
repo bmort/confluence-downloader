@@ -202,7 +202,7 @@ wheels = [
 ]
 
 [[package]]
-name = "confluence-pdf-context"
+name = "confluence-downloader"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
