@@ -37,7 +37,32 @@ Install `uv` if it is not already available:
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-Install the CLI and development dependencies:
+Install the CLI from the checkout:
+
+```bash
+uv tool install --force .
+```
+
+This makes `confluence-downloader` available on your user PATH. If `uv` warns that
+the tool directory is not on PATH, add the suggested directory to your shell profile
+and restart your shell.
+
+When reinstalling after local code changes, install the checkout in editable mode so
+the command uses the current source tree:
+
+```bash
+uv tool install --force --editable .
+```
+
+If your shell still runs an older command after reinstalling, clear the shell command
+cache or start a new shell:
+
+```bash
+rehash
+```
+
+For development, install the project and test dependencies into the local virtual
+environment instead:
 
 ```bash
 uv sync --dev
@@ -50,6 +75,12 @@ brew install pango
 ```
 
 Check the CLI is available:
+
+```bash
+confluence-downloader --help
+```
+
+When working from the development environment, run the CLI with `uv run`:
 
 ```bash
 uv run confluence-downloader --help
@@ -138,13 +169,26 @@ uv run confluence-downloader download \
 
 ## 🧭 Choosing Download Options
 
-| Option               | Applies to                        | Default                                       | Meaning                                                                           |
-| -------------------- | --------------------------------- | --------------------------------------------- | --------------------------------------------------------------------------------- |
-| `--include-children` | `download`, `bulk` config entries | Off for `download`; configurable in bulk JSON | Include all descendants, not only direct children                                 |
-| `--combine-children` | `download`, `bulk`                | On                                            | Write one combined PDF per requested root when children are included              |
-| `--separate-pages`   | `download`, `bulk`                | Off                                           | Write one PDF per page instead of one combined tree PDF                           |
-| `--force`            | `download`, `bulk`                | Off                                           | Regenerate even when an existing PDF or manifest version would normally skip work |
-| `--verbosity`        | `download`, `bulk`                | `quiet` for download, `normal` for bulk       | Choose `quiet`, `normal`, or `verbose` progress logs                              |
+| Option               | Short      | Applies to                        | Default                                       | Meaning                                                                           |
+| -------------------- | ---------- | --------------------------------- | --------------------------------------------- | --------------------------------------------------------------------------------- |
+| `--space`            | `-s`       | `download`, `list-space`, `search` | Required for `download` and `list-space`      | Confluence space key, or search space filter                                      |
+| `--title`            | `-t`       | `download`                        | Required unless `--titles-file` is used       | Confluence page title; repeat for multiple pages                                  |
+| `--titles-file`      | `-T`       | `download`                        | Required unless `--title` is used             | Newline-delimited page titles                                                     |
+| `--config`           | `-c`       | `bulk`                            | Required                                      | JSON bulk download configuration                                                  |
+| `--include-children` | `-i`       | `download`, `bulk` config entries | Off for `download`; configurable in bulk JSON | Include all descendants, not only direct children                                 |
+| `--combine-children` | `-c`, `-C` | `download`, `bulk`                | On                                            | Write one combined PDF per requested root when children are included              |
+| `--separate-pages`   | `-p`       | `download`, `bulk`                | Off                                           | Write one PDF per page instead of one combined tree PDF                           |
+| `--force`            | `-f`       | `download`, `bulk`                | Off                                           | Regenerate even when an existing PDF or manifest version would normally skip work |
+| `--output-dir`       | `-o`       | `download`, `bulk`                | Current directory                             | Directory where PDFs and `downloaded_pages.md` are written                        |
+| `--verbosity`        | `-v`       | `download`, `bulk`                | `normal`                                      | Choose `quiet`, `normal`, or `verbose` progress logs                              |
+| `--base-url`         | `-b`       | all commands                      | `CONFLUENCE_BASE_URL`                         | Confluence base URL                                                               |
+| `--token`            | `-k`       | all commands                      | `CONFLUENCE_PAT`                              | Confluence Personal Access Token                                                  |
+
+Other command-specific short aliases are shown in `--help`: `-d`, `-r`, and `-m`
+cover request delay, retry backoff, and max retries where available; `list-space`
+uses `-d` for `--depth`, `-r` for `--root-title`, `-c` for `--bulk-config`,
+`-i/-I` for bulk config include-children, and `-D/-R` for request delay/retry
+backoff. `bulk` uses `-g/-G` for grouping mode.
 
 ## 📚 Bulk Downloads
 
@@ -248,8 +292,8 @@ generated config to download only the listed pages.
 
 ## 📈 Progress Logs
 
-Bulk mode prints progress for each group, root title, page discovery step, download, skip,
-and summary. Use verbosity to control how noisy it is:
+Download and bulk modes print progress for each root title, page discovery step, download,
+skip, and summary. Use verbosity to control how noisy it is:
 
 ```bash
 uv run confluence-downloader bulk --config pages.json --verbosity verbose
@@ -282,14 +326,15 @@ the initial exponential backoff delay for HTTP 429 responses. If Confluence retu
 
 ## 📁 Output Layout
 
-Files are written under `<output-dir>/<space>/`:
+Files are written directly into the current directory by default, or directly into
+the directory specified by `--output-dir`. The space key is not added to the output
+path.
 
 ```text
-pdfs/
-└── DOC/
-    ├── 0001-123456-architecture-overview-combined.pdf
-    ├── 0002-789012-adr-index-combined.pdf
-    └── downloaded_pages.md
+.
+├── 0001-123456-architecture-overview-combined.pdf
+├── 0002-789012-adr-index-combined.pdf
+└── downloaded_pages.md
 ```
 
 Filenames include the page ID to avoid collisions:
@@ -299,8 +344,8 @@ Filenames include the page ID to avoid collisions:
 0001-123456-architecture-overview-combined.pdf
 ```
 
-Each space output directory includes `downloaded_pages.md`, a Markdown table keyed by page
-ID with:
+The output directory includes `downloaded_pages.md`, a Markdown table keyed by page ID
+with:
 
 - page title
 - Confluence URL

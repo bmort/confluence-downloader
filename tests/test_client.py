@@ -321,10 +321,17 @@ def test_download_pdf_falls_back_to_rest_export_view(tmp_path: Path) -> None:
                 content=b"<!DOCTYPE html><h1>Verify your login via MFA</h1>",
             )
         if request.url.path.endswith("/rest/api/content/123"):
-            assert request.url.params["expand"] == "body.export_view"
+            assert request.url.params["expand"] == "body.styled_view,body.export_view"
             return httpx.Response(
                 200,
-                json={"body": {"export_view": {"value": "<h1>Root</h1><p>Context text</p>"}}},
+                json={
+                    "body": {
+                        "styled_view": {
+                            "value": "<!doctype html><html><body><h1>Root</h1><p>Context text</p></body></html>"
+                        },
+                        "export_view": {"value": "<h1>Root</h1><p>Context text</p>"},
+                    }
+                },
             )
         return httpx.Response(404)
 
@@ -333,3 +340,22 @@ def test_download_pdf_falls_back_to_rest_export_view(tmp_path: Path) -> None:
         client.download_pdf(Page(id="123", title="Root"), output)
 
     assert output.read_bytes().startswith(b"%PDF-")
+
+
+def test_get_page_export_view_prefers_export_view_over_styled_view() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/rest/api/content/123"):
+            assert request.url.params["expand"] == "body.styled_view,body.export_view"
+            return httpx.Response(
+                200,
+                json={
+                    "body": {
+                        "styled_view": {"value": "<html><body>Screen view</body></html>"},
+                        "export_view": {"value": "<p>Print view</p>"},
+                    }
+                },
+            )
+        return httpx.Response(404)
+
+    with make_client(handler) as client:
+        assert client.get_page_export_view("123") == "<p>Print view</p>"

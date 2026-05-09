@@ -230,14 +230,16 @@ class ConfluenceClient:
     def get_page_export_view(self, page_id: str) -> str:
         data = self._get_json(
             f"/rest/api/content/{page_id}",
-            params={"expand": "body.export_view"},
+            params={"expand": "body.styled_view,body.export_view"},
         )
-        try:
-            return str(data["body"]["export_view"]["value"])
-        except KeyError as exc:
-            raise ConfluenceApiError(
-                f"Confluence response for page {page_id} did not include body.export_view."
-            ) from exc
+        body = data.get("body", {})
+        for representation in ("export_view", "styled_view"):
+            value = body.get(representation, {}).get("value")
+            if value:
+                return str(value)
+        raise ConfluenceApiError(
+            f"Confluence response for page {page_id} did not include body.styled_view or body.export_view."
+        )
 
     def _stream_pdf(self, url: str, destination: Path, page_id: str) -> None:
         try:

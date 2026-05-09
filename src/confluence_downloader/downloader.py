@@ -53,8 +53,7 @@ class PdfDownloader:
         combine_children: bool = False,
     ) -> DownloadSummary:
         summary = DownloadSummary(roots_requested=len(titles))
-        output_space_dir = output_dir / space_key
-        output_space_dir.mkdir(parents=True, exist_ok=True)
+        output_dir.mkdir(parents=True, exist_ok=True)
 
         if combine_children and include_children:
             return self._download_combined_roots(
@@ -68,16 +67,16 @@ class PdfDownloader:
         pages = self._collect_pages(space_key, titles, include_children)
         summary.pages_found = len(pages)
         manifest_records: list[ManifestRecord] = []
-        manifest_path = output_space_dir / MANIFEST_FILENAME
+        manifest_path = output_dir / MANIFEST_FILENAME
         manifest_entries = read_manifest_entries(manifest_path) if skip_unchanged else {}
 
         for index, page in enumerate(pages, start=1):
-            destination = output_space_dir / build_pdf_filename(index, page)
+            destination = output_dir / build_pdf_filename(index, page)
             self._log(
                 f"[{index}/{len(pages)}] {page.title} "
                 f"(id={page.id}, version={page.version if page.version is not None else 'unknown'})"
             )
-            unchanged_destination = find_unchanged_pdf(output_space_dir, page, manifest_entries)
+            unchanged_destination = find_unchanged_pdf(output_dir, page, manifest_entries)
             if not force and skip_unchanged and unchanged_destination:
                 self._log(f"unchanged; skipping {unchanged_destination.name}")
                 summary.skipped_unchanged.append(unchanged_destination)
@@ -115,9 +114,8 @@ class PdfDownloader:
         skip_unchanged: bool,
     ) -> DownloadSummary:
         summary = DownloadSummary(roots_requested=len(titles))
-        output_space_dir = output_dir / space_key
-        output_space_dir.mkdir(parents=True, exist_ok=True)
-        manifest_path = output_space_dir / MANIFEST_FILENAME
+        output_dir.mkdir(parents=True, exist_ok=True)
+        manifest_path = output_dir / MANIFEST_FILENAME
         manifest_entries = read_manifest_entries(manifest_path) if skip_unchanged else {}
         manifest_records: list[ManifestRecord] = []
         seen_ids: set[str] = set()
@@ -132,9 +130,9 @@ class PdfDownloader:
             unique_page_group = [page for page in page_group if page.id not in seen_ids]
             seen_ids.update(page.id for page in unique_page_group)
             summary.pages_found += len(unique_page_group)
-            destination = output_space_dir / build_combined_pdf_filename(root_index, root)
+            destination = output_dir / build_combined_pdf_filename(root_index, root)
 
-            if not force and all_pages_unchanged(output_space_dir, unique_page_group, manifest_entries):
+            if not force and all_pages_unchanged(output_dir, unique_page_group, manifest_entries):
                 self._log(f"combined subtree unchanged; skipping {destination.name}")
                 summary.skipped_unchanged.append(destination)
                 manifest_records.extend(ManifestRecord(page=page, pdf_path=destination) for page in unique_page_group)
@@ -217,24 +215,24 @@ def build_combined_pdf_filename(index: int, page: Page) -> str:
     return f"{index:04d}-{page.id}-{slugify_title(page.title)}-combined.pdf"
 
 
-def find_unchanged_pdf(output_space_dir: Path, page: Page, manifest_entries: dict) -> Path | None:
+def find_unchanged_pdf(output_dir: Path, page: Page, manifest_entries: dict) -> Path | None:
     if page.version is None:
         return None
     entry = manifest_entries.get(page.id)
     if not entry or entry.version != page.version:
         return None
-    candidate = output_space_dir / entry.pdf_name
+    candidate = output_dir / entry.pdf_name
     if candidate.exists() and is_pdf_file(candidate):
         return candidate
     return None
 
 
-def all_pages_unchanged(output_space_dir: Path, pages: list[Page], manifest_entries: dict) -> bool:
+def all_pages_unchanged(output_dir: Path, pages: list[Page], manifest_entries: dict) -> bool:
     if not pages:
         return False
     destinations: set[Path] = set()
     for page in pages:
-        unchanged = find_unchanged_pdf(output_space_dir, page, manifest_entries)
+        unchanged = find_unchanged_pdf(output_dir, page, manifest_entries)
         if not unchanged:
             return False
         destinations.add(unchanged)

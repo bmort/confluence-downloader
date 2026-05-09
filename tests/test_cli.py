@@ -26,6 +26,14 @@ def test_cli_without_arguments_shows_help() -> None:
     assert "list-space" in result.output
 
 
+def test_cli_accepts_short_help_alias() -> None:
+    result = runner.invoke(app, ["-h"], prog_name="confluence-downloader")
+
+    assert result.exit_code == 0
+    assert "Usage:" in result.output
+    assert "confluence-downloader" in result.output
+
+
 @pytest.mark.parametrize(
     ("command", "expected"),
     [
@@ -42,6 +50,29 @@ def test_cli_subcommands_without_arguments_show_help(command: str, expected: str
     assert "Usage:" in result.output
     assert f"confluence-downloader {command}" in result.output
     assert expected in result.output
+
+
+def test_cli_subcommand_accepts_short_help_alias() -> None:
+    result = runner.invoke(app, ["download", "-h"], prog_name="confluence-downloader")
+
+    assert result.exit_code == 0
+    assert "Usage:" in result.output
+    assert "confluence-downloader download" in result.output
+    assert "Download selected Confluence pages" in result.output
+
+
+def test_cli_help_marks_required_and_optional_options() -> None:
+    result = runner.invoke(app, ["download", "--help"], prog_name="confluence-downloader")
+    compact_output = " ".join(result.output.split())
+
+    assert result.exit_code == 0
+    assert "Required:" in compact_output
+    assert "Confluence space" in compact_output
+    assert "Required unless" in compact_output
+    assert "--titles-file is" in compact_output
+    assert "is set:" in compact_output
+    assert "Optional:" in compact_output
+    assert "Directory where" in compact_output
 
 
 class FakeConfluenceClient:
@@ -97,9 +128,9 @@ def test_cli_search_uses_query_and_space_filter(monkeypatch) -> None:
         [
             "search",
             "arch overview",
-            "--space",
+            "-s",
             "DOC",
-            "--limit",
+            "-l",
             "5",
         ],
     )
@@ -209,6 +240,55 @@ def test_cli_option_config_beats_env(monkeypatch, tmp_path: Path) -> None:
     assert created == {
         "base_url": "https://cli.example.test/confluence",
         "token": "cli-token",
+    }
+    assert FakeConfluenceClient.last_kwargs == {
+        "request_delay": 0.25,
+        "retry_backoff": 2.0,
+        "max_retries": 5,
+    }
+
+
+def test_cli_download_accepts_short_option_aliases(monkeypatch, tmp_path: Path) -> None:
+    FakeDownloader.calls = []
+    monkeypatch.setattr(cli, "ConfluenceClient", FakeConfluenceClient)
+    monkeypatch.setattr(cli, "PdfDownloader", FakeDownloader)
+
+    result = runner.invoke(
+        app,
+        [
+            "download",
+            "-s",
+            "DOC",
+            "-t",
+            "Root",
+            "-o",
+            str(tmp_path),
+            "-b",
+            "https://cli.example.test/confluence",
+            "-k",
+            "cli-token",
+            "-d",
+            "0.25",
+            "-r",
+            "2",
+            "-m",
+            "5",
+            "-i",
+            "-p",
+            "-f",
+            "-v",
+            "quiet",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert FakeDownloader.last_call == {
+        "space_key": "DOC",
+        "titles": ["Root"],
+        "output_dir": tmp_path,
+        "include_children": True,
+        "force": True,
+        "combine_children": False,
     }
     assert FakeConfluenceClient.last_kwargs == {
         "request_delay": 0.25,
@@ -339,11 +419,61 @@ def test_cli_bulk_can_group_by_space(monkeypatch, tmp_path: Path) -> None:
         {
             "space_key": "DOC",
             "titles": ["Root", "Other"],
-            "output_dir": Path("pdfs"),
+            "output_dir": Path("."),
             "include_children": True,
             "force": False,
             "skip_unchanged": True,
             "combine_children": True,
+        }
+    ]
+
+
+def test_cli_bulk_accepts_short_option_aliases(monkeypatch, tmp_path: Path) -> None:
+    FakeDownloader.calls = []
+    config = tmp_path / "pages.json"
+    config.write_text(
+        '{"pages": [{"space": "DOC", "title": "Root", "include_children": true}]}',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(cli, "ConfluenceClient", FakeConfluenceClient)
+    monkeypatch.setattr(cli, "PdfDownloader", FakeDownloader)
+
+    result = runner.invoke(
+        app,
+        [
+            "bulk",
+            "-c",
+            str(config),
+            "-o",
+            str(tmp_path / "out"),
+            "-b",
+            "https://cli.example.test/confluence",
+            "-k",
+            "cli-token",
+            "-d",
+            "0.25",
+            "-r",
+            "2",
+            "-m",
+            "5",
+            "-G",
+            "-p",
+            "-f",
+            "-v",
+            "quiet",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert FakeDownloader.calls == [
+        {
+            "space_key": "DOC",
+            "titles": ["Root"],
+            "output_dir": tmp_path / "out",
+            "include_children": True,
+            "force": True,
+            "skip_unchanged": True,
+            "combine_children": False,
         }
     ]
 
@@ -402,11 +532,11 @@ def test_cli_list_space_accepts_root_title(monkeypatch) -> None:
         app,
         [
             "list-space",
-            "--space",
+            "-s",
             "DOC",
-            "--depth",
+            "-d",
             "1",
-            "--root-title",
+            "-r",
             "Child",
         ],
     )

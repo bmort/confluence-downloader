@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import os
+import re
 import sys
 from typing import Callable
 
@@ -23,7 +24,11 @@ def render_html_pdf(
     from weasyprint import HTML
 
     destination.parent.mkdir(parents=True, exist_ok=True)
-    document = _wrap_confluence_html(page, html)
+    if _is_full_html_document(html):
+        document = _inject_source_metadata(html, page)
+    else:
+        document = _wrap_confluence_html(page, html)
+    document = _prepare_confluence_html(document)
     HTML(string=document, base_url=base_url, url_fetcher=url_fetcher).write_pdf(destination)
 
 
@@ -40,7 +45,7 @@ def render_combined_html_pdf(
     from weasyprint import HTML
 
     destination.parent.mkdir(parents=True, exist_ok=True)
-    document = _wrap_combined_confluence_html(title, sections)
+    document = _prepare_confluence_html(_wrap_combined_confluence_html(title, sections))
     HTML(string=document, base_url=base_url, url_fetcher=url_fetcher).write_pdf(destination)
 
 
@@ -84,14 +89,16 @@ def _wrap_confluence_html(page: Page, body_html: str) -> str:
     h2 {{ font-size: 17pt; }}
     h3 {{ font-size: 14pt; }}
     p {{ margin: 0 0 0.75em; }}
-    a {{ color: #0052cc; text-decoration: none; }}
+    a {{ color: #0052cc; overflow-wrap: anywhere; text-decoration: none; }}
     table {{
       border-collapse: collapse;
       margin: 0.8em 0 1em;
+      table-layout: fixed;
       width: 100%;
     }}
     th, td {{
       border: 1px solid #c1c7d0;
+      overflow-wrap: anywhere;
       padding: 5px 7px;
       vertical-align: top;
     }}
@@ -177,14 +184,16 @@ def _wrap_combined_confluence_html(title: str, sections: list[tuple[Page, str]])
     h2 {{ font-size: 17pt; }}
     h3 {{ font-size: 14pt; }}
     p {{ margin: 0 0 0.75em; }}
-    a {{ color: #0052cc; text-decoration: none; }}
+    a {{ color: #0052cc; overflow-wrap: anywhere; text-decoration: none; }}
     table {{
       border-collapse: collapse;
       margin: 0.8em 0 1em;
+      table-layout: fixed;
       width: 100%;
     }}
     th, td {{
       border: 1px solid #c1c7d0;
+      overflow-wrap: anywhere;
       padding: 5px 7px;
       vertical-align: top;
     }}
@@ -236,13 +245,142 @@ def _wrap_combined_confluence_html(title: str, sections: list[tuple[Page, str]])
 def _render_section(page: Page, body_html: str) -> str:
     title = _escape_html(page.title)
     source = _escape_html(page.url)
+    body = _html_body_fragment(body_html) if _is_full_html_document(body_html) else body_html
     return f"""
 <section class="combined-page">
   <h1>{title}</h1>
   <div class="metadata">Source: {source}</div>
-  {body_html}
+  {body}
 </section>
 """
+
+
+def _prepare_confluence_html(document: str) -> str:
+    """Apply print-only fixes for Confluence macros that normally depend on JavaScript."""
+    document = _unhide_aura_tab_panels(document)
+    return _inject_head_style(document, _confluence_print_fixes())
+
+
+def _is_full_html_document(html: str) -> bool:
+    stripped = html.lstrip().lower()
+    return stripped.startswith("<!doctype html") or stripped.startswith("<html")
+
+
+def _html_body_fragment(html: str) -> str:
+    body_start = re.search(r"<body\b[^>]*>", html, flags=re.IGNORECASE)
+    body_end = re.search(r"</body\s*>", html, flags=re.IGNORECASE)
+    if not body_start or not body_end or body_end.start() <= body_start.end():
+        return html
+    return html[body_start.end() : body_end.start()]
+
+
+def _inject_source_metadata(document: str, page: Page) -> str:
+    source = _escape_html(page.url)
+    metadata = (
+        '<div class="confluence-downloader-metadata">'
+        f'Source: <a href="{source}">{source}</a>'
+        "</div>"
+    )
+    body_start = re.search(r"<body\b[^>]*>", document, flags=re.IGNORECASE)
+    if body_start:
+        return f"{document[: body_start.end()]}\n{metadata}\n{document[body_start.end():]}"
+    return f"{metadata}\n{document}"
+
+
+def _inject_head_style(document: str, css: str) -> str:
+    style = f"<style>\n{css}\n</style>"
+    head_end = re.search(r"</head\s*>", document, flags=re.IGNORECASE)
+    if head_end:
+        return f"{document[: head_end.start()]}{style}\n{document[head_end.start():]}"
+    return f"{style}\n{document}"
+
+
+def _unhide_aura_tab_panels(document: str) -> str:
+    def unhide_panel(match: re.Match[str]) -> str:
+        tag = match.group(0)
+        if 'data-macro-name="aura-tab"' not in tag and "data-aura-tab-title=" not in tag:
+            return tag
+        tag = re.sub(r"\s+hidden(?:=(?:\"\"|''|[^\s>]+))?", "", tag, flags=re.IGNORECASE)
+        tag = re.sub(r'\s+aria-hidden=(["\'])true\1', "", tag, flags=re.IGNORECASE)
+        return tag
+
+    return re.sub(r"<div\b[^>]*>", unhide_panel, document, flags=re.IGNORECASE)
+
+
+def _confluence_print_fixes() -> str:
+    return """
+    .confluence-downloader-metadata {
+      color: #626f86;
+      font-size: 8.5pt;
+      margin-bottom: 16px;
+    }
+    .confluence-downloader-metadata a {
+      color: #0052cc;
+      text-decoration: none;
+    }
+    .table-wrap,
+    .table-wrapper {
+      box-sizing: border-box;
+      max-width: 100% !important;
+      overflow: hidden;
+    }
+    .aura-tab-container,
+    .aura-tab-content,
+    .aura-tab-container div,
+    [data-aura-tab-title],
+    .content-wrapper,
+    p,
+    li {
+      box-sizing: border-box;
+      max-width: 100% !important;
+      overflow-wrap: anywhere;
+    }
+    table.confluenceTable,
+    table.aui,
+    .table-wrap > table,
+    .table-wrapper > table {
+      table-layout: fixed !important;
+      width: 100% !important;
+      max-width: 100% !important;
+    }
+    table.confluenceTable col,
+    table.aui col {
+      width: auto !important;
+    }
+    table.confluenceTable th,
+    table.confluenceTable td,
+    table.aui th,
+    table.aui td {
+      overflow-wrap: anywhere !important;
+      word-break: normal;
+    }
+    table.confluenceTable img,
+    table.aui img {
+      max-width: 100% !important;
+      height: auto !important;
+    }
+    [data-macro-name="aura-tab"] {
+      border-top: 2px solid #6554c0;
+      display: block !important;
+      margin-top: 1.2em;
+      padding-top: 0.6em;
+    }
+    [data-macro-name="aura-tab"][hidden],
+    [data-macro-name="aura-tab"][aria-hidden="true"] {
+      display: block !important;
+    }
+    [data-macro-name="aura-tab"]::before {
+      color: #172b4d;
+      content: attr(data-aura-tab-title);
+      display: block;
+      font-size: 14pt;
+      font-weight: 700;
+      margin: 0 0 0.7em;
+    }
+    .aura-tab-nav-wrapper {
+      display: none !important;
+    }
+    """
 
 
 def _escape_html(value: str) -> str:

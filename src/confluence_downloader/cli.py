@@ -14,7 +14,11 @@ from .errors import ConfigError, ConfluencePdfError
 from .tree import TreePage, list_space_tree
 from .utils import merge_titles, normalize_base_url
 
-app = typer.Typer(help="Download Confluence Data Center pages as PDFs.", invoke_without_command=True)
+app = typer.Typer(
+    help="Download Confluence Data Center pages as PDFs.",
+    invoke_without_command=True,
+    context_settings={"help_option_names": ["-h", "--help"]},
+)
 
 
 @app.callback()
@@ -28,58 +32,84 @@ def main(ctx: typer.Context) -> None:
 @app.command()
 def download(
     ctx: typer.Context,
-    space: Annotated[str | None, typer.Option("--space", help="Confluence space key.")] = None,
+    space: Annotated[str | None, typer.Option("--space", "-s", help="Required: Confluence space key.")] = None,
     title: Annotated[
         list[str] | None,
-        typer.Option("--title", help="Confluence page title. Repeat for multiple pages."),
+        typer.Option(
+            "--title",
+            "-t",
+            help="Required unless --titles-file is used: Confluence page title. Repeat for multiple pages.",
+        ),
     ] = None,
     titles_file: Annotated[
         Path | None,
-        typer.Option("--titles-file", exists=True, dir_okay=False, help="Newline-delimited page titles."),
+        typer.Option(
+            "--titles-file",
+            "-T",
+            exists=True,
+            dir_okay=False,
+            help="Required unless --title is used: Newline-delimited page titles.",
+        ),
     ] = None,
     output_dir: Annotated[
         Path,
-        typer.Option("--output-dir", file_okay=False, help="Directory where PDFs are written."),
-    ] = Path("pdfs"),
+        typer.Option("--output-dir", "-o", file_okay=False, help="Optional: Directory where PDFs are written."),
+    ] = Path("."),
     include_children: Annotated[
         bool,
-        typer.Option("--include-children", help="Download each page plus all descendants."),
+        typer.Option("--include-children", "-i", help="Optional: Download each page plus all descendants."),
     ] = False,
     combine_children: Annotated[
         bool,
         typer.Option(
             "--combine-children/--separate-pages",
-            help="When including children, write one combined PDF per root instead of one PDF per page.",
+            "-c/-p",
+            help="Optional: When including children, write one combined PDF per root instead of one PDF per page.",
         ),
     ] = True,
     force: Annotated[
         bool,
-        typer.Option("--force", help="Regenerate PDFs even when a valid PDF already exists."),
+        typer.Option("--force", "-f", help="Optional: Regenerate PDFs even when a valid PDF already exists."),
     ] = False,
     base_url: Annotated[
         str | None,
-        typer.Option("--base-url", envvar="CONFLUENCE_BASE_URL", help="Confluence base URL."),
+        typer.Option(
+            "--base-url",
+            "-b",
+            envvar="CONFLUENCE_BASE_URL",
+            help="Required unless CONFLUENCE_BASE_URL is set: Confluence base URL.",
+        ),
     ] = None,
     token: Annotated[
         str | None,
-        typer.Option("--token", envvar="CONFLUENCE_PAT", help="Confluence Personal Access Token."),
+        typer.Option(
+            "--token",
+            "-k",
+            envvar="CONFLUENCE_PAT",
+            help="Required unless CONFLUENCE_PAT is set: Confluence Personal Access Token.",
+        ),
     ] = None,
     request_delay: Annotated[
         float,
-        typer.Option("--request-delay", min=0.0, help="Minimum delay in seconds between Confluence requests."),
+        typer.Option(
+            "--request-delay",
+            "-d",
+            min=0.0,
+            help="Optional: Minimum delay in seconds between Confluence requests.",
+        ),
     ] = 0.0,
     retry_backoff: Annotated[
         float,
-        typer.Option("--retry-backoff", min=0.0, help="Initial 429 retry backoff in seconds."),
+        typer.Option("--retry-backoff", "-r", min=0.0, help="Optional: Initial 429 retry backoff in seconds."),
     ] = 1.0,
     max_retries: Annotated[
         int,
-        typer.Option("--max-retries", min=0, help="Maximum number of retries for HTTP 429 responses."),
+        typer.Option("--max-retries", "-m", min=0, help="Optional: Maximum number of retries for HTTP 429 responses."),
     ] = 3,
     verbosity: Annotated[
         str,
-        typer.Option("--verbosity", help="Progress log verbosity: quiet, normal, or verbose."),
-    ] = "quiet",
+        typer.Option("--verbosity", "-v", help="Optional: Progress log verbosity: quiet, normal, or verbose."),
+    ] = "normal",
 ) -> None:
     """Download selected Confluence pages as individual PDF files."""
     if not ctx.args and ctx.params.get("space") is None:
@@ -113,7 +143,7 @@ def download(
                 combine_children=combine_children,
             )
 
-        _print_summary(summary, output_dir / space)
+        _print_summary(summary, output_dir)
         if summary.failed:
             raise typer.Exit(code=1)
     except ConfluencePdfError as exc:
@@ -126,53 +156,70 @@ def bulk(
     ctx: typer.Context,
     config: Annotated[
         Path | None,
-        typer.Option("--config", exists=True, dir_okay=False, help="JSON bulk download configuration."),
+        typer.Option("--config", "-c", exists=True, dir_okay=False, help="Required: JSON bulk download configuration."),
     ] = None,
     output_dir: Annotated[
         Path,
-        typer.Option("--output-dir", file_okay=False, help="Directory where PDFs are written."),
-    ] = Path("pdfs"),
+        typer.Option("--output-dir", "-o", file_okay=False, help="Optional: Directory where PDFs are written."),
+    ] = Path("."),
     force: Annotated[
         bool,
-        typer.Option("--force", help="Regenerate PDFs even when the manifest version is unchanged."),
+        typer.Option("--force", "-f", help="Optional: Regenerate PDFs even when the manifest version is unchanged."),
     ] = False,
     group_by_page: Annotated[
         bool,
         typer.Option(
             "--group-by-page/--group-by-space",
-            help="Run each configured page as its own group, or combine pages by space and include_children.",
+            "-g/-G",
+            help="Optional: Run each configured page as its own group, or combine pages by space and include_children.",
         ),
     ] = True,
     combine_children: Annotated[
         bool,
         typer.Option(
             "--combine-children/--separate-pages",
-            help="When include_children is true, write one combined PDF per configured root.",
+            "-C/-p",
+            help="Optional: When include_children is true, write one combined PDF per configured root.",
         ),
     ] = True,
     base_url: Annotated[
         str | None,
-        typer.Option("--base-url", envvar="CONFLUENCE_BASE_URL", help="Confluence base URL."),
+        typer.Option(
+            "--base-url",
+            "-b",
+            envvar="CONFLUENCE_BASE_URL",
+            help="Required unless CONFLUENCE_BASE_URL is set: Confluence base URL.",
+        ),
     ] = None,
     token: Annotated[
         str | None,
-        typer.Option("--token", envvar="CONFLUENCE_PAT", help="Confluence Personal Access Token."),
+        typer.Option(
+            "--token",
+            "-k",
+            envvar="CONFLUENCE_PAT",
+            help="Required unless CONFLUENCE_PAT is set: Confluence Personal Access Token.",
+        ),
     ] = None,
     request_delay: Annotated[
         float,
-        typer.Option("--request-delay", min=0.0, help="Minimum delay in seconds between Confluence requests."),
+        typer.Option(
+            "--request-delay",
+            "-d",
+            min=0.0,
+            help="Optional: Minimum delay in seconds between Confluence requests.",
+        ),
     ] = 0.0,
     retry_backoff: Annotated[
         float,
-        typer.Option("--retry-backoff", min=0.0, help="Initial 429 retry backoff in seconds."),
+        typer.Option("--retry-backoff", "-r", min=0.0, help="Optional: Initial 429 retry backoff in seconds."),
     ] = 1.0,
     max_retries: Annotated[
         int,
-        typer.Option("--max-retries", min=0, help="Maximum number of retries for HTTP 429 responses."),
+        typer.Option("--max-retries", "-m", min=0, help="Optional: Maximum number of retries for HTTP 429 responses."),
     ] = 3,
     verbosity: Annotated[
         str,
-        typer.Option("--verbosity", help="Progress log verbosity: quiet, normal, or verbose."),
+        typer.Option("--verbosity", "-v", help="Optional: Progress log verbosity: quiet, normal, or verbose."),
     ] = "normal",
 ) -> None:
     """Download pages from a JSON config, skipping unchanged versions."""
@@ -224,7 +271,7 @@ def bulk(
                     skip_unchanged=True,
                     combine_children=combine_children,
                 )
-                _print_summary(summary, output_dir / group.space)
+                _print_summary(summary, output_dir)
                 if summary.failed:
                     failed = True
 
@@ -238,52 +285,70 @@ def bulk(
 @app.command("list-space")
 def list_space(
     ctx: typer.Context,
-    space: Annotated[str | None, typer.Option("--space", help="Confluence space key.")] = None,
+    space: Annotated[str | None, typer.Option("--space", "-s", help="Required: Confluence space key.")] = None,
     depth: Annotated[
         int | None,
-        typer.Option("--depth", min=1, help="Tree depth to list. Root pages are depth 1."),
+        typer.Option("--depth", "-d", min=1, help="Required: Tree depth to list. Root pages are depth 1."),
     ] = None,
     root_title: Annotated[
         str | None,
         typer.Option(
             "--root-title",
-            help="Start listing at this page title instead of listing every root page in the space.",
+            "-r",
+            help="Optional: Start listing at this page title instead of listing every root page in the space.",
         ),
     ] = None,
     bulk_config: Annotated[
         Path | None,
         typer.Option(
             "--bulk-config",
+            "-c",
             dir_okay=False,
-            help="Create or update a JSON bulk config with pages at the final listed depth.",
+            help="Optional: Create or update a JSON bulk config with pages at the final listed depth.",
         ),
     ] = None,
     bulk_include_children: Annotated[
         bool,
         typer.Option(
             "--bulk-include-children/--no-bulk-include-children",
-            help="Set include_children for generated final-depth bulk config entries.",
+            "-i/-I",
+            help="Optional: Set include_children for generated final-depth bulk config entries.",
         ),
     ] = True,
     base_url: Annotated[
         str | None,
-        typer.Option("--base-url", envvar="CONFLUENCE_BASE_URL", help="Confluence base URL."),
+        typer.Option(
+            "--base-url",
+            "-b",
+            envvar="CONFLUENCE_BASE_URL",
+            help="Required unless CONFLUENCE_BASE_URL is set: Confluence base URL.",
+        ),
     ] = None,
     token: Annotated[
         str | None,
-        typer.Option("--token", envvar="CONFLUENCE_PAT", help="Confluence Personal Access Token."),
+        typer.Option(
+            "--token",
+            "-k",
+            envvar="CONFLUENCE_PAT",
+            help="Required unless CONFLUENCE_PAT is set: Confluence Personal Access Token.",
+        ),
     ] = None,
     request_delay: Annotated[
         float,
-        typer.Option("--request-delay", min=0.0, help="Minimum delay in seconds between Confluence requests."),
+        typer.Option(
+            "--request-delay",
+            "-D",
+            min=0.0,
+            help="Optional: Minimum delay in seconds between Confluence requests.",
+        ),
     ] = 0.0,
     retry_backoff: Annotated[
         float,
-        typer.Option("--retry-backoff", min=0.0, help="Initial 429 retry backoff in seconds."),
+        typer.Option("--retry-backoff", "-R", min=0.0, help="Optional: Initial 429 retry backoff in seconds."),
     ] = 1.0,
     max_retries: Annotated[
         int,
-        typer.Option("--max-retries", min=0, help="Maximum number of retries for HTTP 429 responses."),
+        typer.Option("--max-retries", "-m", min=0, help="Optional: Maximum number of retries for HTTP 429 responses."),
     ] = 3,
 ) -> None:
     """List a space page tree and optionally update a bulk config from the final depth."""
@@ -341,35 +406,50 @@ def search(
     ctx: typer.Context,
     query: Annotated[
         str | None,
-        typer.Argument(help="Search string to match against Confluence page titles."),
+        typer.Argument(help="Required: Search string to match against Confluence page titles."),
     ] = None,
     space: Annotated[
         str | None,
-        typer.Option("--space", help="Restrict search to this Confluence space key."),
+        typer.Option("--space", "-s", help="Optional: Restrict search to this Confluence space key."),
     ] = None,
     limit: Annotated[
         int,
-        typer.Option("--limit", min=1, max=100, help="Maximum number of matches to return."),
+        typer.Option("--limit", "-l", min=1, max=100, help="Optional: Maximum number of matches to return."),
     ] = 10,
     base_url: Annotated[
         str | None,
-        typer.Option("--base-url", envvar="CONFLUENCE_BASE_URL", help="Confluence base URL."),
+        typer.Option(
+            "--base-url",
+            "-b",
+            envvar="CONFLUENCE_BASE_URL",
+            help="Required unless CONFLUENCE_BASE_URL is set: Confluence base URL.",
+        ),
     ] = None,
     token: Annotated[
         str | None,
-        typer.Option("--token", envvar="CONFLUENCE_PAT", help="Confluence Personal Access Token."),
+        typer.Option(
+            "--token",
+            "-k",
+            envvar="CONFLUENCE_PAT",
+            help="Required unless CONFLUENCE_PAT is set: Confluence Personal Access Token.",
+        ),
     ] = None,
     request_delay: Annotated[
         float,
-        typer.Option("--request-delay", min=0.0, help="Minimum delay in seconds between Confluence requests."),
+        typer.Option(
+            "--request-delay",
+            "-d",
+            min=0.0,
+            help="Optional: Minimum delay in seconds between Confluence requests.",
+        ),
     ] = 0.0,
     retry_backoff: Annotated[
         float,
-        typer.Option("--retry-backoff", min=0.0, help="Initial 429 retry backoff in seconds."),
+        typer.Option("--retry-backoff", "-r", min=0.0, help="Optional: Initial 429 retry backoff in seconds."),
     ] = 1.0,
     max_retries: Annotated[
         int,
-        typer.Option("--max-retries", min=0, help="Maximum number of retries for HTTP 429 responses."),
+        typer.Option("--max-retries", "-m", min=0, help="Optional: Maximum number of retries for HTTP 429 responses."),
     ] = 3,
 ) -> None:
     """Search Confluence page titles for close matches."""
