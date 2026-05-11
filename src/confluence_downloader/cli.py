@@ -7,9 +7,10 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
+from click.core import ParameterSource
 
 from .client import ConfluenceClient
-from .config import BulkPageRequest, read_bulk_config, update_bulk_config
+from .config import BulkPageRequest, read_bulk_config_details, update_bulk_config
 from .downloader import PdfDownloader
 from .errors import ConfigError, ConfluencePdfError
 from .models import Page
@@ -21,6 +22,10 @@ app = typer.Typer(
     invoke_without_command=True,
     context_settings={"help_option_names": ["-h", "--help"]},
 )
+
+REQUIRED_HELP_PANEL = "Required options"
+OPTIONAL_HELP_PANEL = "Optional options"
+CONNECTION_HELP_PANEL = "Confluence connection"
 
 
 @app.callback()
@@ -34,13 +39,17 @@ def main(ctx: typer.Context) -> None:
 @app.command()
 def download(
     ctx: typer.Context,
-    space: Annotated[str | None, typer.Option("--space", "-s", help="Required: Confluence space key.")] = None,
+    space: Annotated[
+        str | None,
+        typer.Option("--space", "-s", help="Confluence space key.", rich_help_panel=REQUIRED_HELP_PANEL),
+    ] = None,
     title: Annotated[
         list[str] | None,
         typer.Option(
             "--title",
             "-t",
-            help="Required unless --titles-file is used: Confluence page title. Repeat for multiple pages.",
+            help="Confluence page title. Repeat for multiple pages. Required unless --titles-file is used.",
+            rich_help_panel=REQUIRED_HELP_PANEL,
         ),
     ] = None,
     titles_file: Annotated[
@@ -50,28 +59,46 @@ def download(
             "-T",
             exists=True,
             dir_okay=False,
-            help="Required unless --title is used: Newline-delimited page titles.",
+            help="Newline-delimited page titles. Required unless --title is used.",
+            rich_help_panel=REQUIRED_HELP_PANEL,
         ),
     ] = None,
     output_dir: Annotated[
         Path,
-        typer.Option("--output-dir", "-o", file_okay=False, help="Optional: Directory where PDFs are written."),
+        typer.Option(
+            "--output-dir",
+            "-o",
+            file_okay=False,
+            help="Directory where PDFs are written.",
+            rich_help_panel=OPTIONAL_HELP_PANEL,
+        ),
     ] = Path("."),
     include_children: Annotated[
         bool,
-        typer.Option("--include-children", "-i", help="Optional: Download each page plus all descendants."),
+        typer.Option(
+            "--include-children",
+            "-i",
+            help="Download each page plus all descendants.",
+            rich_help_panel=OPTIONAL_HELP_PANEL,
+        ),
     ] = False,
     combine_children: Annotated[
         bool,
         typer.Option(
             "--combine-children/--separate-pages",
             "-c/-p",
-            help="Optional: When including children, write one combined PDF per root instead of one PDF per page.",
+            help="When including children, write one combined PDF per root instead of one PDF per page.",
+            rich_help_panel=OPTIONAL_HELP_PANEL,
         ),
     ] = True,
     force: Annotated[
         bool,
-        typer.Option("--force", "-f", help="Optional: Regenerate PDFs even when a valid PDF already exists."),
+        typer.Option(
+            "--force",
+            "-f",
+            help="Regenerate PDFs even when a valid PDF already exists.",
+            rich_help_panel=OPTIONAL_HELP_PANEL,
+        ),
     ] = False,
     base_url: Annotated[
         str | None,
@@ -79,7 +106,8 @@ def download(
             "--base-url",
             "-b",
             envvar="CONFLUENCE_BASE_URL",
-            help="Required unless CONFLUENCE_BASE_URL is set: Confluence base URL.",
+            help="Confluence base URL. Required unless CONFLUENCE_BASE_URL is set.",
+            rich_help_panel=CONNECTION_HELP_PANEL,
         ),
     ] = None,
     token: Annotated[
@@ -88,7 +116,8 @@ def download(
             "--token",
             "-k",
             envvar="CONFLUENCE_PAT",
-            help="Required unless CONFLUENCE_PAT is set: Confluence Personal Access Token.",
+            help="Confluence Personal Access Token. Required unless CONFLUENCE_PAT is set.",
+            rich_help_panel=CONNECTION_HELP_PANEL,
         ),
     ] = None,
     request_delay: Annotated[
@@ -97,20 +126,38 @@ def download(
             "--request-delay",
             "-d",
             min=0.0,
-            help="Optional: Minimum delay in seconds between Confluence requests.",
+            help="Minimum delay in seconds between Confluence requests.",
+            rich_help_panel=OPTIONAL_HELP_PANEL,
         ),
     ] = 0.0,
     retry_backoff: Annotated[
         float,
-        typer.Option("--retry-backoff", "-r", min=0.0, help="Optional: Initial 429 retry backoff in seconds."),
+        typer.Option(
+            "--retry-backoff",
+            "-r",
+            min=0.0,
+            help="Initial 429 retry backoff in seconds.",
+            rich_help_panel=OPTIONAL_HELP_PANEL,
+        ),
     ] = 1.0,
     max_retries: Annotated[
         int,
-        typer.Option("--max-retries", "-m", min=0, help="Optional: Maximum number of retries for HTTP 429 responses."),
+        typer.Option(
+            "--max-retries",
+            "-m",
+            min=0,
+            help="Maximum number of retries for HTTP 429 responses.",
+            rich_help_panel=OPTIONAL_HELP_PANEL,
+        ),
     ] = 3,
     verbosity: Annotated[
         str,
-        typer.Option("--verbosity", "-v", help="Optional: Progress log verbosity: quiet, normal, or verbose."),
+        typer.Option(
+            "--verbosity",
+            "-v",
+            help="Progress log verbosity: quiet, normal, or verbose.",
+            rich_help_panel=OPTIONAL_HELP_PANEL,
+        ),
     ] = "normal",
 ) -> None:
     """Download selected Confluence pages as individual PDF files."""
@@ -158,22 +205,41 @@ def bulk(
     ctx: typer.Context,
     config: Annotated[
         Path | None,
-        typer.Option("--config", "-c", exists=True, dir_okay=False, help="Required: JSON bulk download configuration."),
+        typer.Option(
+            "--config",
+            "-c",
+            exists=True,
+            dir_okay=False,
+            help="JSON bulk download configuration.",
+            rich_help_panel=REQUIRED_HELP_PANEL,
+        ),
     ] = None,
     output_dir: Annotated[
         Path,
-        typer.Option("--output-dir", "-o", file_okay=False, help="Optional: Directory where PDFs are written."),
+        typer.Option(
+            "--output-dir",
+            "-o",
+            file_okay=False,
+            help="Directory where PDFs are written.",
+            rich_help_panel=OPTIONAL_HELP_PANEL,
+        ),
     ] = Path("."),
     force: Annotated[
         bool,
-        typer.Option("--force", "-f", help="Optional: Regenerate PDFs even when the manifest version is unchanged."),
+        typer.Option(
+            "--force",
+            "-f",
+            help="Regenerate PDFs even when the manifest version is unchanged.",
+            rich_help_panel=OPTIONAL_HELP_PANEL,
+        ),
     ] = False,
     group_by_page: Annotated[
         bool,
         typer.Option(
             "--group-by-page/--group-by-space",
             "-g/-G",
-            help="Optional: Run each configured page as its own group, or combine pages by space and include_children.",
+            help="Run each configured page as its own group, or combine pages by space and include_children.",
+            rich_help_panel=OPTIONAL_HELP_PANEL,
         ),
     ] = True,
     combine_children: Annotated[
@@ -181,7 +247,8 @@ def bulk(
         typer.Option(
             "--combine-children/--separate-pages",
             "-C/-p",
-            help="Optional: When include_children is true, write one combined PDF per configured root.",
+            help="When include_children is true, write one combined PDF per configured root.",
+            rich_help_panel=OPTIONAL_HELP_PANEL,
         ),
     ] = True,
     base_url: Annotated[
@@ -190,7 +257,8 @@ def bulk(
             "--base-url",
             "-b",
             envvar="CONFLUENCE_BASE_URL",
-            help="Required unless CONFLUENCE_BASE_URL is set: Confluence base URL.",
+            help="Confluence base URL. Required unless CONFLUENCE_BASE_URL is set.",
+            rich_help_panel=CONNECTION_HELP_PANEL,
         ),
     ] = None,
     token: Annotated[
@@ -199,7 +267,8 @@ def bulk(
             "--token",
             "-k",
             envvar="CONFLUENCE_PAT",
-            help="Required unless CONFLUENCE_PAT is set: Confluence Personal Access Token.",
+            help="Confluence Personal Access Token. Required unless CONFLUENCE_PAT is set.",
+            rich_help_panel=CONNECTION_HELP_PANEL,
         ),
     ] = None,
     request_delay: Annotated[
@@ -208,20 +277,38 @@ def bulk(
             "--request-delay",
             "-d",
             min=0.0,
-            help="Optional: Minimum delay in seconds between Confluence requests.",
+            help="Minimum delay in seconds between Confluence requests.",
+            rich_help_panel=OPTIONAL_HELP_PANEL,
         ),
     ] = 0.0,
     retry_backoff: Annotated[
         float,
-        typer.Option("--retry-backoff", "-r", min=0.0, help="Optional: Initial 429 retry backoff in seconds."),
+        typer.Option(
+            "--retry-backoff",
+            "-r",
+            min=0.0,
+            help="Initial 429 retry backoff in seconds.",
+            rich_help_panel=OPTIONAL_HELP_PANEL,
+        ),
     ] = 1.0,
     max_retries: Annotated[
         int,
-        typer.Option("--max-retries", "-m", min=0, help="Optional: Maximum number of retries for HTTP 429 responses."),
+        typer.Option(
+            "--max-retries",
+            "-m",
+            min=0,
+            help="Maximum number of retries for HTTP 429 responses.",
+            rich_help_panel=OPTIONAL_HELP_PANEL,
+        ),
     ] = 3,
     verbosity: Annotated[
         str,
-        typer.Option("--verbosity", "-v", help="Optional: Progress log verbosity: quiet, normal, or verbose."),
+        typer.Option(
+            "--verbosity",
+            "-v",
+            help="Progress log verbosity: quiet, normal, or verbose.",
+            rich_help_panel=OPTIONAL_HELP_PANEL,
+        ),
     ] = "normal",
 ) -> None:
     """Download pages from a JSON config, skipping unchanged versions."""
@@ -234,7 +321,14 @@ def bulk(
         resolved_token = _required_token(token)
         if config is None:
             raise ConfigError("Provide --config.")
-        requests = read_bulk_config(config)
+        bulk_config_details = read_bulk_config_details(config)
+        requests = bulk_config_details.pages
+        output_dir_source = ctx.get_parameter_source("output_dir")
+        resolved_output_dir = (
+            output_dir
+            if output_dir_source is not ParameterSource.DEFAULT
+            else bulk_config_details.output_dir or Path(".")
+        )
 
         groups = _group_bulk_requests(requests, group_by_page=group_by_page)
         logger = _make_logger(verbosity)
@@ -267,13 +361,13 @@ def bulk(
                 summary = downloader.download(
                     space_key=group.space,
                     titles=group.titles,
-                    output_dir=output_dir,
+                    output_dir=resolved_output_dir,
                     include_children=group.include_children,
                     force=force,
                     skip_unchanged=True,
                     combine_children=combine_children,
                 )
-                _print_summary(summary, output_dir)
+                _print_summary(summary, resolved_output_dir)
                 if summary.failed:
                     failed = True
 
@@ -287,17 +381,27 @@ def bulk(
 @app.command("list")
 def list_space(
     ctx: typer.Context,
-    space: Annotated[str | None, typer.Option("--space", "-s", help="Required: Confluence space key.")] = None,
+    space: Annotated[
+        str | None,
+        typer.Option("--space", "-s", help="Confluence space key.", rich_help_panel=REQUIRED_HELP_PANEL),
+    ] = None,
     depth: Annotated[
         int | None,
-        typer.Option("--depth", "-d", min=1, help="Required: Tree depth to list. Root pages are depth 1."),
+        typer.Option(
+            "--depth",
+            "-d",
+            min=1,
+            help="Tree depth to list. Root pages are depth 1.",
+            rich_help_panel=REQUIRED_HELP_PANEL,
+        ),
     ] = None,
     root_title: Annotated[
         str | None,
         typer.Option(
             "--root-title",
             "-r",
-            help="Optional: Start listing at this page title instead of listing every root page in the space.",
+            help="Start listing at this page title instead of listing every root page in the space.",
+            rich_help_panel=OPTIONAL_HELP_PANEL,
         ),
     ] = None,
     bulk_config: Annotated[
@@ -306,7 +410,8 @@ def list_space(
             "--bulk-config",
             "-c",
             dir_okay=False,
-            help="Optional: Create or update a JSON bulk config with pages at the final listed depth.",
+            help="Create or update a JSON bulk config with pages at the final listed depth.",
+            rich_help_panel=OPTIONAL_HELP_PANEL,
         ),
     ] = None,
     bulk_include_children: Annotated[
@@ -314,7 +419,8 @@ def list_space(
         typer.Option(
             "--bulk-include-children/--no-bulk-include-children",
             "-i/-I",
-            help="Optional: Set include_children for generated final-depth bulk config entries.",
+            help="Set include_children for generated final-depth bulk config entries.",
+            rich_help_panel=OPTIONAL_HELP_PANEL,
         ),
     ] = True,
     ask_download: Annotated[
@@ -322,7 +428,17 @@ def list_space(
         typer.Option(
             "--ask-download",
             "-a",
-            help="Optional: After listing pages, prompt to download the listed pages.",
+            help="After listing pages, prompt to download the listed pages.",
+            rich_help_panel=OPTIONAL_HELP_PANEL,
+        ),
+    ] = False,
+    yes: Annotated[
+        bool,
+        typer.Option(
+            "--yes",
+            "-y",
+            help="With --ask-download, download listed pages without prompting.",
+            rich_help_panel=OPTIONAL_HELP_PANEL,
         ),
     ] = False,
     output_dir: Annotated[
@@ -331,7 +447,8 @@ def list_space(
             "--output-dir",
             "-o",
             file_okay=False,
-            help="Optional: Directory where prompted downloads are written.",
+            help="Directory where prompted downloads are written.",
+            rich_help_panel=OPTIONAL_HELP_PANEL,
         ),
     ] = Path("."),
     force: Annotated[
@@ -339,7 +456,8 @@ def list_space(
         typer.Option(
             "--force",
             "-f",
-            help="Optional: Regenerate prompted downloads even when a valid PDF already exists.",
+            help="Regenerate prompted downloads even when a valid PDF already exists.",
+            rich_help_panel=OPTIONAL_HELP_PANEL,
         ),
     ] = False,
     verbosity: Annotated[
@@ -347,7 +465,8 @@ def list_space(
         typer.Option(
             "--verbosity",
             "-v",
-            help="Optional: Prompted download progress log verbosity: quiet, normal, or verbose.",
+            help="Prompted download progress log verbosity: quiet, normal, or verbose.",
+            rich_help_panel=OPTIONAL_HELP_PANEL,
         ),
     ] = "normal",
     base_url: Annotated[
@@ -356,7 +475,8 @@ def list_space(
             "--base-url",
             "-b",
             envvar="CONFLUENCE_BASE_URL",
-            help="Required unless CONFLUENCE_BASE_URL is set: Confluence base URL.",
+            help="Confluence base URL. Required unless CONFLUENCE_BASE_URL is set.",
+            rich_help_panel=CONNECTION_HELP_PANEL,
         ),
     ] = None,
     token: Annotated[
@@ -365,7 +485,8 @@ def list_space(
             "--token",
             "-k",
             envvar="CONFLUENCE_PAT",
-            help="Required unless CONFLUENCE_PAT is set: Confluence Personal Access Token.",
+            help="Confluence Personal Access Token. Required unless CONFLUENCE_PAT is set.",
+            rich_help_panel=CONNECTION_HELP_PANEL,
         ),
     ] = None,
     request_delay: Annotated[
@@ -374,16 +495,29 @@ def list_space(
             "--request-delay",
             "-D",
             min=0.0,
-            help="Optional: Minimum delay in seconds between Confluence requests.",
+            help="Minimum delay in seconds between Confluence requests.",
+            rich_help_panel=OPTIONAL_HELP_PANEL,
         ),
     ] = 0.0,
     retry_backoff: Annotated[
         float,
-        typer.Option("--retry-backoff", "-R", min=0.0, help="Optional: Initial 429 retry backoff in seconds."),
+        typer.Option(
+            "--retry-backoff",
+            "-R",
+            min=0.0,
+            help="Initial 429 retry backoff in seconds.",
+            rich_help_panel=OPTIONAL_HELP_PANEL,
+        ),
     ] = 1.0,
     max_retries: Annotated[
         int,
-        typer.Option("--max-retries", "-m", min=0, help="Optional: Maximum number of retries for HTTP 429 responses."),
+        typer.Option(
+            "--max-retries",
+            "-m",
+            min=0,
+            help="Maximum number of retries for HTTP 429 responses.",
+            rich_help_panel=OPTIONAL_HELP_PANEL,
+        ),
     ] = 3,
 ) -> None:
     """List a space page tree and optionally update a bulk config from the final depth."""
@@ -417,27 +551,31 @@ def list_space(
                 typer.echo(_format_tree_page(tree_page))
 
             listed_pages = [tree_page.page for tree_page in tree_pages]
+            download_confirmed = False
             if ask_download:
-                _prompt_download_pages(
+                download_confirmed = _prompt_download_pages(
                     client,
                     listed_pages,
                     output_dir=output_dir,
                     force=force,
                     verbosity=verbosity,
+                    assume_yes=yes,
                     fallback_space=space,
                 )
 
             final_depth_pages = [tree_page for tree_page in tree_pages if tree_page.depth == depth]
             if bulk_config:
+                resolved_bulk_config = _generated_bulk_config_path(ctx, bulk_config, output_dir)
                 update_bulk_config(
-                    bulk_config,
+                    resolved_bulk_config,
                     _bulk_requests_from_pages(
                         [tree_page.page for tree_page in final_depth_pages],
                         include_children=bulk_include_children,
                         fallback_space=space,
                     ),
+                    output_dir=output_dir if download_confirmed else None,
                 )
-                typer.echo(f"Bulk config updated: {bulk_config}")
+                typer.echo(f"Bulk config updated: {resolved_bulk_config}")
                 typer.echo(f"Final-depth pages written: {len(final_depth_pages)}")
     except ConfluencePdfError as exc:
         typer.echo(f"Error: {exc}", err=True)
@@ -453,18 +591,40 @@ def search(
     ] = None,
     space: Annotated[
         str | None,
-        typer.Option("--space", "-s", help="Optional: Restrict search to this Confluence space key."),
+        typer.Option(
+            "--space",
+            "-s",
+            help="Restrict search to this Confluence space key.",
+            rich_help_panel=OPTIONAL_HELP_PANEL,
+        ),
     ] = None,
     limit: Annotated[
         int,
-        typer.Option("--limit", "-l", min=1, max=100, help="Optional: Maximum number of matches to return."),
+        typer.Option(
+            "--limit",
+            "-l",
+            min=1,
+            max=100,
+            help="Maximum number of matches to return.",
+            rich_help_panel=OPTIONAL_HELP_PANEL,
+        ),
     ] = 10,
     ask_download: Annotated[
         bool,
         typer.Option(
             "--ask-download",
             "-a",
-            help="Optional: After showing matches, prompt to download the matched pages.",
+            help="After showing matches, prompt to download the matched pages.",
+            rich_help_panel=OPTIONAL_HELP_PANEL,
+        ),
+    ] = False,
+    yes: Annotated[
+        bool,
+        typer.Option(
+            "--yes",
+            "-y",
+            help="With --ask-download, download matched pages without prompting.",
+            rich_help_panel=OPTIONAL_HELP_PANEL,
         ),
     ] = False,
     bulk_config: Annotated[
@@ -473,7 +633,8 @@ def search(
             "--bulk-config",
             "-c",
             dir_okay=False,
-            help="Optional: Create or update a JSON bulk config with the matched pages.",
+            help="Create or update a JSON bulk config with the matched pages.",
+            rich_help_panel=OPTIONAL_HELP_PANEL,
         ),
     ] = None,
     bulk_include_children: Annotated[
@@ -481,7 +642,8 @@ def search(
         typer.Option(
             "--bulk-include-children/--no-bulk-include-children",
             "-i/-I",
-            help="Optional: Set include_children for generated search-result bulk config entries.",
+            help="Set include_children for generated search-result bulk config entries.",
+            rich_help_panel=OPTIONAL_HELP_PANEL,
         ),
     ] = False,
     output_dir: Annotated[
@@ -490,7 +652,8 @@ def search(
             "--output-dir",
             "-o",
             file_okay=False,
-            help="Optional: Directory where prompted downloads are written.",
+            help="Directory where prompted downloads are written.",
+            rich_help_panel=OPTIONAL_HELP_PANEL,
         ),
     ] = Path("."),
     force: Annotated[
@@ -498,7 +661,8 @@ def search(
         typer.Option(
             "--force",
             "-f",
-            help="Optional: Regenerate prompted downloads even when a valid PDF already exists.",
+            help="Regenerate prompted downloads even when a valid PDF already exists.",
+            rich_help_panel=OPTIONAL_HELP_PANEL,
         ),
     ] = False,
     verbosity: Annotated[
@@ -506,7 +670,8 @@ def search(
         typer.Option(
             "--verbosity",
             "-v",
-            help="Optional: Prompted download progress log verbosity: quiet, normal, or verbose.",
+            help="Prompted download progress log verbosity: quiet, normal, or verbose.",
+            rich_help_panel=OPTIONAL_HELP_PANEL,
         ),
     ] = "normal",
     base_url: Annotated[
@@ -515,7 +680,8 @@ def search(
             "--base-url",
             "-b",
             envvar="CONFLUENCE_BASE_URL",
-            help="Required unless CONFLUENCE_BASE_URL is set: Confluence base URL.",
+            help="Confluence base URL. Required unless CONFLUENCE_BASE_URL is set.",
+            rich_help_panel=CONNECTION_HELP_PANEL,
         ),
     ] = None,
     token: Annotated[
@@ -524,7 +690,8 @@ def search(
             "--token",
             "-k",
             envvar="CONFLUENCE_PAT",
-            help="Required unless CONFLUENCE_PAT is set: Confluence Personal Access Token.",
+            help="Confluence Personal Access Token. Required unless CONFLUENCE_PAT is set.",
+            rich_help_panel=CONNECTION_HELP_PANEL,
         ),
     ] = None,
     request_delay: Annotated[
@@ -533,16 +700,29 @@ def search(
             "--request-delay",
             "-d",
             min=0.0,
-            help="Optional: Minimum delay in seconds between Confluence requests.",
+            help="Minimum delay in seconds between Confluence requests.",
+            rich_help_panel=OPTIONAL_HELP_PANEL,
         ),
     ] = 0.0,
     retry_backoff: Annotated[
         float,
-        typer.Option("--retry-backoff", "-r", min=0.0, help="Optional: Initial 429 retry backoff in seconds."),
+        typer.Option(
+            "--retry-backoff",
+            "-r",
+            min=0.0,
+            help="Initial 429 retry backoff in seconds.",
+            rich_help_panel=OPTIONAL_HELP_PANEL,
+        ),
     ] = 1.0,
     max_retries: Annotated[
         int,
-        typer.Option("--max-retries", "-m", min=0, help="Optional: Maximum number of retries for HTTP 429 responses."),
+        typer.Option(
+            "--max-retries",
+            "-m",
+            min=0,
+            help="Maximum number of retries for HTTP 429 responses.",
+            rich_help_panel=OPTIONAL_HELP_PANEL,
+        ),
     ] = 3,
 ) -> None:
     """Search Confluence page titles for close matches."""
@@ -573,24 +753,28 @@ def search(
             ]
             _print_table(rows)
 
+            download_confirmed = False
             if ask_download:
-                _prompt_download_pages(
+                download_confirmed = _prompt_download_pages(
                     client,
                     pages,
                     output_dir=output_dir,
                     force=force,
                     verbosity=verbosity,
+                    assume_yes=yes,
                 )
 
             if bulk_config:
+                resolved_bulk_config = _generated_bulk_config_path(ctx, bulk_config, output_dir)
                 update_bulk_config(
-                    bulk_config,
+                    resolved_bulk_config,
                     _bulk_requests_from_pages(
                         pages,
                         include_children=bulk_include_children,
                     ),
+                    output_dir=output_dir if download_confirmed else None,
                 )
-                typer.echo(f"Bulk config updated: {bulk_config}")
+                typer.echo(f"Bulk config updated: {resolved_bulk_config}")
                 typer.echo(f"Matched pages written: {len(pages)}")
     except ConfluencePdfError as exc:
         typer.echo(f"Error: {exc}", err=True)
@@ -635,13 +819,17 @@ def _prompt_download_pages(
     output_dir: Path,
     force: bool,
     verbosity: str,
+    assume_yes: bool,
     fallback_space: str | None = None,
-) -> None:
+) -> bool:
     if not pages:
-        return
-    if not typer.confirm(f"Download {len(pages)} listed page{'s' if len(pages) != 1 else ''}?", default=False):
+        return False
+    if not assume_yes and not typer.confirm(
+        f"Download {len(pages)} listed page{'s' if len(pages) != 1 else ''}?",
+        default=False,
+    ):
         typer.echo("Download skipped.")
-        return
+        return False
 
     failed = False
     downloader = PdfDownloader(client, logger=_make_logger(_prompt_download_verbosity(verbosity)))
@@ -660,6 +848,14 @@ def _prompt_download_pages(
 
     if failed:
         raise typer.Exit(code=1)
+    return True
+
+
+def _generated_bulk_config_path(ctx: typer.Context, bulk_config: Path, output_dir: Path) -> Path:
+    output_dir_source = ctx.get_parameter_source("output_dir")
+    if output_dir_source is ParameterSource.DEFAULT or bulk_config.is_absolute():
+        return bulk_config
+    return output_dir / bulk_config
 
 
 def _titles_by_space(pages: list[Page], *, fallback_space: str | None = None) -> dict[str, list[str]]:

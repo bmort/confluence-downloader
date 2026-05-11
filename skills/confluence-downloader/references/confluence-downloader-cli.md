@@ -81,10 +81,17 @@ when calling `download` or creating a bulk config.
 Add `--ask-download` or `-a` with `--output-dir ./pdfs` to prompt for downloading all
 returned matches after the search table is printed. Prompted downloads always use at
 least `normal` progress verbosity, even if `--verbosity quiet` is supplied.
+Add `--yes` or `-y` to auto-confirm that prompted download.
 
 Add `--bulk-config pages.json` to create or update a bulk config from the returned
 matches. Use `--bulk-include-children` when the generated entries should pull page
 subtrees later.
+
+When `--ask-download` is accepted while writing `--bulk-config`, the prompted
+`--output-dir` is stored as top-level `output_dir` in that config. Future
+`bulk --config pages.json` runs use it unless `--output-dir` is supplied explicitly.
+When `--output-dir` is supplied while writing a relative `--bulk-config`, the config file
+itself is written inside that output directory.
 
 Use `list` when the user describes a space or subtree but not exact page titles:
 
@@ -102,6 +109,7 @@ Add `--root-title "Title"` to start below a page. Use `--no-bulk-include-childre
 
 Add `--ask-download` or `-a` with `--output-dir ./pdfs` to prompt for downloading every
 listed page after the tree is printed.
+Add `--yes` or `-y` to auto-confirm that prompted download.
 
 `list` output quotes titles and separates metadata with `|`, for example:
 

@@ -181,6 +181,7 @@ uv run confluence-downloader download \
 | `--force`            | `-f`       | `download`, `bulk`, prompted downloads | Off                                      | Regenerate even when an existing PDF or manifest version would normally skip work |
 | `--output-dir`       | `-o`       | `download`, `bulk`, prompted downloads | Current directory                        | Directory where PDFs and `downloaded_pages.md` are written                        |
 | `--ask-download`     | `-a`       | `list`, `search`                  | Off                                           | Prompt to download the listed or matched pages after showing results              |
+| `--yes`              | `-y`       | `list`, `search` with `--ask-download` | Off                                      | Auto-confirm prompted downloads                                                   |
 | `--verbosity`        | `-v`       | `download`, `bulk`, prompted downloads | `normal`                                 | Choose `quiet`, `normal`, or `verbose`; prompted downloads use at least `normal`  |
 | `--base-url`         | `-b`       | all commands                      | `CONFLUENCE_BASE_URL`                         | Confluence base URL                                                               |
 | `--token`            | `-k`       | all commands                      | `CONFLUENCE_PAT`                              | Confluence Personal Access Token                                                  |
@@ -197,6 +198,7 @@ Use bulk mode when you have a repeatable set of pages, especially across spaces:
 
 ```json
 {
+  "output_dir": "./pdfs",
   "include_children": true,
   "pages": [
     { "space": "DOC", "title": "Architecture Overview" },
@@ -214,6 +216,7 @@ uv run confluence-downloader bulk --config pages.json --output-dir ./pdfs
 Bulk config rules:
 
 - Top-level `"include_children"` is the default for all pages in the file.
+- Top-level `"output_dir"` is used by `bulk` when `--output-dir` is not supplied.
 - A page entry can override that default with its own `"include_children"` value.
 - `--group-by-page` is the default, so each configured page is processed as its own
   progress group.
@@ -269,6 +272,8 @@ Prompt to download the returned matches:
 uv run confluence-downloader search "architecture overview" --space DOC -a --output-dir ./pdfs
 ```
 
+Add `--yes` or `-y` to auto-confirm the prompted download.
+
 Prompted downloads always show at least `normal` progress logs, even if `--verbosity quiet`
 is supplied.
 
@@ -277,6 +282,12 @@ Create or update a bulk config from the returned matches:
 ```bash
 uv run confluence-downloader search "architecture overview" --space DOC --bulk-config pages.json
 ```
+
+When `--ask-download` is accepted while writing `--bulk-config`, the prompted
+`--output-dir` is stored in the generated bulk config. Later `bulk --config pages.json`
+runs will use that folder unless `--output-dir` is supplied again.
+When `--output-dir` is supplied while writing a relative `--bulk-config`, the config file
+itself is written inside that output directory.
 
 List a space page tree to a chosen depth. Root pages are depth 1:
 
@@ -299,6 +310,7 @@ Create or update a bulk config from the pages at the final listed depth:
 uv run confluence-downloader list \
   --space DOC \
   --depth 2 \
+  --output-dir ./pdfs \
   --bulk-config pages.json
 ```
 
@@ -354,16 +366,16 @@ path.
 
 ```text
 .
-├── 0001-123456-architecture-overview-combined.pdf
-├── 0002-789012-adr-index-combined.pdf
+├── architecture-overview-combined-123456.pdf
+├── adr-index-combined-789012.pdf
 └── downloaded_pages.md
 ```
 
 Filenames include the page ID to avoid collisions:
 
 ```text
-0001-123456-architecture-overview.pdf
-0001-123456-architecture-overview-combined.pdf
+architecture-overview-123456.pdf
+architecture-overview-combined-123456.pdf
 ```
 
 The output directory includes `downloaded_pages.md`, a Markdown table keyed by page ID

@@ -17,7 +17,7 @@ def test_update_manifest_writes_download_metadata(tmp_path: Path) -> None:
                     version=7,
                     version_when="2026-05-01T08:30:00.000Z",
                 ),
-                pdf_path=tmp_path / "0001-123-root.pdf",
+                pdf_path=tmp_path / "root-123.pdf",
             )
         ],
     )
@@ -25,12 +25,12 @@ def test_update_manifest_writes_download_metadata(tmp_path: Path) -> None:
     assert manifest.read_text(encoding="utf-8") == (
         "| Page ID | Title | URL | Version | Version Date | PDF |\n"
         "| --- | --- | --- | --- | --- | --- |\n"
-        "| 123 | Root \\| Page | [https://confluence.example.test/display/DOC/Root](https://confluence.example.test/display/DOC/Root) | 7 | 2026-05-01T08:30:00.000Z | 0001-123-root.pdf |\n"
+        "| 123 | Root \\| Page | [https://confluence.example.test/display/DOC/Root](https://confluence.example.test/display/DOC/Root) | 7 | 2026-05-01T08:30:00.000Z | root-123.pdf |\n"
     )
 
     entries = read_manifest_entries(manifest)
     assert entries["123"].version == 7
-    assert entries["123"].pdf_name == "0001-123-root.pdf"
+    assert entries["123"].pdf_name == "root-123.pdf"
 
 
 def test_update_manifest_replaces_existing_page_row(tmp_path: Path) -> None:

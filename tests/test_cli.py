@@ -61,18 +61,20 @@ def test_cli_subcommand_accepts_short_help_alias() -> None:
     assert "Download selected Confluence pages" in result.output
 
 
-def test_cli_help_marks_required_and_optional_options() -> None:
+def test_cli_help_groups_options_by_purpose() -> None:
     result = runner.invoke(app, ["download", "--help"], prog_name="confluence-downloader")
     compact_output = " ".join(result.output.split())
 
     assert result.exit_code == 0
-    assert "Required:" in compact_output
+    assert "Required options" in compact_output
     assert "Confluence space" in compact_output
-    assert "Required unless" in compact_output
-    assert "--titles-file is" in compact_output
-    assert "is set:" in compact_output
-    assert "Optional:" in compact_output
+    assert "Optional options" in compact_output
     assert "Directory where" in compact_output
+    assert "Confluence connection" in compact_output
+    assert "--base-url" in compact_output
+    assert "--token" in compact_output
+    assert "--titles-file is" in compact_output
+    assert "CONFLUENCE_BASE_URL is set" in compact_output
 
 
 class FakeConfluenceClient:
@@ -226,6 +228,39 @@ def test_cli_search_prompt_can_skip_download(monkeypatch, tmp_path: Path) -> Non
     assert FakeDownloader.init_kwargs == []
 
 
+def test_cli_search_can_auto_confirm_prompted_download(monkeypatch, tmp_path: Path) -> None:
+    FakeDownloader.calls = []
+    monkeypatch.setenv("CONFLUENCE_BASE_URL", "https://confluence.example.test")
+    monkeypatch.setenv("CONFLUENCE_PAT", "env-token")
+    monkeypatch.setattr(cli, "ConfluenceClient", FakeConfluenceClient)
+    monkeypatch.setattr(cli, "PdfDownloader", FakeDownloader)
+
+    result = runner.invoke(
+        app,
+        [
+            "search",
+            "arch overview",
+            "--ask-download",
+            "--yes",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "Download 1 listed page?" not in result.output
+    assert FakeDownloader.calls == [
+        {
+            "space_key": "DOC",
+            "titles": ["Architecture Overview"],
+            "output_dir": tmp_path,
+            "include_children": False,
+            "force": False,
+            "combine_children": True,
+        }
+    ]
+
+
 def test_cli_search_prompt_raises_quiet_verbosity_to_normal(monkeypatch, tmp_path: Path) -> None:
     FakeDownloader.calls = []
     FakeDownloader.init_kwargs = []
@@ -287,6 +322,61 @@ def test_cli_search_updates_bulk_config(monkeypatch, tmp_path: Path) -> None:
     assert '"space": "DOC"' in config_text
     assert '"title": "Architecture Overview"' in config_text
     assert '"include_children": true' in config_text
+
+
+def test_cli_search_writes_output_dir_to_bulk_config_after_prompted_download(monkeypatch, tmp_path: Path) -> None:
+    FakeDownloader.calls = []
+    output_dir = tmp_path / "pdfs"
+    config = output_dir / "pages.json"
+    monkeypatch.setenv("CONFLUENCE_BASE_URL", "https://confluence.example.test")
+    monkeypatch.setenv("CONFLUENCE_PAT", "env-token")
+    monkeypatch.setattr(cli, "ConfluenceClient", FakeConfluenceClient)
+    monkeypatch.setattr(cli, "PdfDownloader", FakeDownloader)
+
+    result = runner.invoke(
+        app,
+        [
+            "search",
+            "arch overview",
+            "--space",
+            "DOC",
+            "--ask-download",
+            "--bulk-config",
+            "pages.json",
+            "--output-dir",
+            str(output_dir),
+        ],
+        input="y\n",
+    )
+
+    config_text = config.read_text(encoding="utf-8")
+    assert result.exit_code == 0
+    assert FakeDownloader.calls
+    assert f'"output_dir": "{output_dir}"' in config_text
+
+
+def test_cli_search_writes_relative_bulk_config_under_output_dir(monkeypatch, tmp_path: Path) -> None:
+    output_dir = tmp_path / "pdfs"
+    config = output_dir / "pages.json"
+    monkeypatch.setenv("CONFLUENCE_BASE_URL", "https://confluence.example.test")
+    monkeypatch.setenv("CONFLUENCE_PAT", "env-token")
+    monkeypatch.setattr(cli, "ConfluenceClient", FakeConfluenceClient)
+
+    result = runner.invoke(
+        app,
+        [
+            "search",
+            "arch overview",
+            "--bulk-config",
+            "pages.json",
+            "--output-dir",
+            str(output_dir),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert f"Bulk config updated: {config}" in result.output
+    assert config.exists()
 
 
 def test_cli_uses_env_config_and_repeated_titles(monkeypatch, tmp_path: Path) -> None:
@@ -485,6 +575,42 @@ def test_cli_bulk_uses_config_and_skips_unchanged(monkeypatch, tmp_path: Path) -
     ]
 
 
+def test_cli_bulk_uses_config_output_dir_when_option_is_omitted(monkeypatch, tmp_path: Path) -> None:
+    FakeDownloader.calls = []
+    config = tmp_path / "pages.json"
+    output_dir = tmp_path / "pdfs"
+    config.write_text(
+        f"""
+        {{
+          "output_dir": "{output_dir}",
+          "pages": [
+            {{"space": "DOC", "title": "Root", "include_children": true}}
+          ]
+        }}
+        """,
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CONFLUENCE_BASE_URL", "https://confluence.example.test")
+    monkeypatch.setenv("CONFLUENCE_PAT", "env-token")
+    monkeypatch.setattr(cli, "ConfluenceClient", FakeConfluenceClient)
+    monkeypatch.setattr(cli, "PdfDownloader", FakeDownloader)
+
+    result = runner.invoke(app, ["bulk", "--config", str(config)])
+
+    assert result.exit_code == 0
+    assert FakeDownloader.calls == [
+        {
+            "space_key": "DOC",
+            "titles": ["Root"],
+            "output_dir": output_dir,
+            "include_children": True,
+            "force": False,
+            "skip_unchanged": True,
+            "combine_children": True,
+        }
+    ]
+
+
 def test_cli_bulk_quiet_suppresses_progress_logs(monkeypatch, tmp_path: Path) -> None:
     FakeDownloader.calls = []
     config = tmp_path / "pages.json"
@@ -644,6 +770,40 @@ def test_cli_list_space_updates_bulk_config(monkeypatch, tmp_path: Path) -> None
     assert '"include_children": false' in config.read_text(encoding="utf-8")
 
 
+def test_cli_list_space_writes_relative_bulk_config_under_output_dir(monkeypatch, tmp_path: Path) -> None:
+    output_dir = tmp_path / "pdfs"
+    config = output_dir / "pages.json"
+    monkeypatch.setenv("CONFLUENCE_BASE_URL", "https://confluence.example.test")
+    monkeypatch.setenv("CONFLUENCE_PAT", "env-token")
+    monkeypatch.setattr(cli, "ConfluenceClient", FakeConfluenceClient)
+    monkeypatch.setattr(
+        cli,
+        "list_space_tree",
+        lambda client, space_key, max_depth, root_title=None: [
+            TreePage(page=Page(id="2", title="Child"), depth=1, path=("Child",)),
+        ],
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "list",
+            "--space",
+            "DOC",
+            "--depth",
+            "1",
+            "--bulk-config",
+            "pages.json",
+            "--output-dir",
+            str(output_dir),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert f"Bulk config updated: {config}" in result.output
+    assert config.exists()
+
+
 def test_cli_list_space_accepts_root_title(monkeypatch) -> None:
     captured = {}
     monkeypatch.setenv("CONFLUENCE_BASE_URL", "https://confluence.example.test")
@@ -722,6 +882,49 @@ def test_cli_list_space_can_prompt_to_download_listed_pages(monkeypatch, tmp_pat
     ]
     assert len(FakeDownloader.init_kwargs) == 1
     assert callable(FakeDownloader.init_kwargs[0]["logger"])
+
+
+def test_cli_list_space_can_auto_confirm_prompted_download(monkeypatch, tmp_path: Path) -> None:
+    FakeDownloader.calls = []
+    monkeypatch.setenv("CONFLUENCE_BASE_URL", "https://confluence.example.test")
+    monkeypatch.setenv("CONFLUENCE_PAT", "env-token")
+    monkeypatch.setattr(cli, "ConfluenceClient", FakeConfluenceClient)
+    monkeypatch.setattr(cli, "PdfDownloader", FakeDownloader)
+    monkeypatch.setattr(
+        cli,
+        "list_space_tree",
+        lambda client, space_key, max_depth, root_title=None: [
+            TreePage(page=Page(id="1", title="Root"), depth=1, path=("Root",)),
+        ],
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "list",
+            "--space",
+            "DOC",
+            "--depth",
+            "1",
+            "--ask-download",
+            "-y",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "Download 1 listed page?" not in result.output
+    assert FakeDownloader.calls == [
+        {
+            "space_key": "DOC",
+            "titles": ["Root"],
+            "output_dir": tmp_path,
+            "include_children": False,
+            "force": False,
+            "combine_children": True,
+        }
+    ]
 
 
 def test_cli_requires_title_or_titles_file(monkeypatch) -> None:

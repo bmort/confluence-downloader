@@ -15,17 +15,32 @@ class BulkPageRequest:
     include_children: bool
 
 
+@dataclass(frozen=True)
+class BulkConfig:
+    pages: list[BulkPageRequest]
+    output_dir: Path | None = None
+
+
 def read_bulk_config(path: Path) -> list[BulkPageRequest]:
+    return read_bulk_config_details(path).pages
+
+
+def read_bulk_config_details(path: Path) -> BulkConfig:
     raw_config = _read_raw_config(path)
     raw_pages, default_include_children = _extract_pages(raw_config, allow_empty=False)
 
     requests: list[BulkPageRequest] = []
     for index, raw_page in enumerate(raw_pages, start=1):
         requests.append(_parse_page_request(raw_page, index, default_include_children))
-    return requests
+    return BulkConfig(pages=requests, output_dir=_extract_output_dir(raw_config))
 
 
-def update_bulk_config(path: Path, requests: list[BulkPageRequest]) -> None:
+def update_bulk_config(
+    path: Path,
+    requests: list[BulkPageRequest],
+    *,
+    output_dir: Path | None = None,
+) -> None:
     if path.exists():
         raw_config = _read_raw_config(path)
         raw_pages, default_include_children = _extract_pages(raw_config, allow_empty=True)
@@ -52,10 +67,12 @@ def update_bulk_config(path: Path, requests: list[BulkPageRequest]) -> None:
 
     updated_pages = sorted(pages_by_key.values(), key=lambda item: (item["space"], item["title"]))
     if isinstance(raw_config, list):
-        output: Any = updated_pages
+        output: Any = {"include_children": default_include_children, "pages": updated_pages}
     else:
         output = dict(raw_config)
         output["pages"] = updated_pages
+    if output_dir is not None:
+        output["output_dir"] = str(output_dir)
 
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(output, indent=2, sort_keys=False) + "\n", encoding="utf-8")
@@ -83,6 +100,15 @@ def _extract_pages(raw_config: Any, *, allow_empty: bool) -> tuple[list[Any], bo
     if not isinstance(raw_pages, list) or (not raw_pages and not allow_empty):
         raise ConfigError("Bulk config must contain at least one page entry.")
     return raw_pages, default_include_children
+
+
+def _extract_output_dir(raw_config: Any) -> Path | None:
+    if not isinstance(raw_config, dict) or "output_dir" not in raw_config:
+        return None
+    output_dir = raw_config["output_dir"]
+    if not isinstance(output_dir, str) or not output_dir.strip():
+        raise ConfigError("Bulk config output_dir must be a non-empty string.")
+    return Path(output_dir)
 
 
 def _parse_page_request(

@@ -156,11 +156,17 @@ You can also ask the CLI to prompt for downloading the returned matches:
 uv run confluence-downloader search "architecture overview" --space DOC -a --output-dir pdfs
 ```
 
+Add `--yes` or `-y` to auto-confirm that prompted download.
+
 Or create a bulk config from those matches:
 
 ```bash
 uv run confluence-downloader search "architecture overview" --space DOC --bulk-config pages.json
 ```
+
+If you combine `--ask-download`, `--bulk-config`, and `--output-dir`, accepting the
+download prompt stores that output folder in `pages.json` for later `bulk --config`
+runs.
 
 From any other directory, pass the clone explicitly:
 

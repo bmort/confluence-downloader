@@ -71,7 +71,7 @@ class PdfDownloader:
         manifest_entries = read_manifest_entries(manifest_path) if skip_unchanged else {}
 
         for index, page in enumerate(pages, start=1):
-            destination = output_dir / build_pdf_filename(index, page)
+            destination = output_dir / build_pdf_filename(page)
             self._log(
                 f"[{index}/{len(pages)}] {page.title} "
                 f"(id={page.id}, version={page.version if page.version is not None else 'unknown'})"
@@ -130,7 +130,7 @@ class PdfDownloader:
             unique_page_group = [page for page in page_group if page.id not in seen_ids]
             seen_ids.update(page.id for page in unique_page_group)
             summary.pages_found += len(unique_page_group)
-            destination = output_dir / build_combined_pdf_filename(root_index, root)
+            destination = output_dir / build_combined_pdf_filename(root)
 
             if not force and all_pages_unchanged(output_dir, unique_page_group, manifest_entries):
                 self._log(f"combined subtree unchanged; skipping {destination.name}")
@@ -207,12 +207,12 @@ class PdfDownloader:
             self.logger(level, message)
 
 
-def build_pdf_filename(index: int, page: Page) -> str:
-    return f"{index:04d}-{page.id}-{slugify_title(page.title)}.pdf"
+def build_pdf_filename(page: Page) -> str:
+    return f"{slugify_title(page.title)}-{page.id}.pdf"
 
 
-def build_combined_pdf_filename(index: int, page: Page) -> str:
-    return f"{index:04d}-{page.id}-{slugify_title(page.title)}-combined.pdf"
+def build_combined_pdf_filename(page: Page) -> str:
+    return f"{slugify_title(page.title)}-combined-{page.id}.pdf"
 
 
 def find_unchanged_pdf(output_dir: Path, page: Page, manifest_entries: dict) -> Path | None:
