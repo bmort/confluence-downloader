@@ -195,6 +195,7 @@ def test_cli_search_can_prompt_to_download_matches(monkeypatch, tmp_path: Path) 
             "output_dir": tmp_path,
             "include_children": False,
             "force": True,
+            "skip_unchanged": True,
             "combine_children": True,
         }
     ]
@@ -256,6 +257,7 @@ def test_cli_search_can_auto_confirm_prompted_download(monkeypatch, tmp_path: Pa
             "output_dir": tmp_path,
             "include_children": False,
             "force": False,
+            "skip_unchanged": True,
             "combine_children": True,
         }
     ]
@@ -851,6 +853,7 @@ def test_cli_list_space_prompted_bulk_config_uses_downloaded_listed_pages(monkey
             "output_dir": output_dir,
             "include_children": False,
             "force": False,
+            "skip_unchanged": True,
             "combine_children": True,
         }
     ]
@@ -929,6 +932,7 @@ def test_cli_list_space_can_prompt_to_download_listed_pages(monkeypatch, tmp_pat
             "output_dir": tmp_path,
             "include_children": False,
             "force": False,
+            "skip_unchanged": True,
             "combine_children": True,
         }
     ]
@@ -974,6 +978,7 @@ def test_cli_list_space_can_auto_confirm_prompted_download(monkeypatch, tmp_path
             "output_dir": tmp_path,
             "include_children": False,
             "force": False,
+            "skip_unchanged": True,
             "combine_children": True,
         }
     ]

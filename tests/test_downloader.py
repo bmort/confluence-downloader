@@ -38,7 +38,11 @@ class FakeClient:
         destination.write_bytes(b"%PDF- combined")
 
 
-def test_build_pdf_filename_places_id_at_end() -> None:
+def test_build_pdf_filename_places_version_after_id() -> None:
+    assert build_pdf_filename(Page(id="123", title="My Page", version=7)) == "my-page-123-v7.pdf"
+
+
+def test_build_pdf_filename_omits_unknown_version() -> None:
     assert build_pdf_filename(Page(id="123", title="My Page")) == "my-page-123.pdf"
 
 
@@ -69,7 +73,7 @@ def test_downloader_downloads_roots_and_descendants(tmp_path: Path) -> None:
 
 
 def test_downloader_skips_existing_files(tmp_path: Path) -> None:
-    existing = tmp_path / "root-1.pdf"
+    existing = tmp_path / "root-1-v5.pdf"
     existing.write_bytes(b"%PDF- already here")
     fake_client = FakeClient()
     downloader = PdfDownloader(fake_client)  # type: ignore[arg-type]
@@ -88,7 +92,7 @@ def test_downloader_skips_existing_files(tmp_path: Path) -> None:
 
 
 def test_downloader_replaces_existing_non_pdf_file(tmp_path: Path) -> None:
-    existing = tmp_path / "root-1.pdf"
+    existing = tmp_path / "root-1-v5.pdf"
     existing.write_text("<!DOCTYPE html><h1>Login</h1>", encoding="utf-8")
     fake_client = FakeClient()
     downloader = PdfDownloader(fake_client)  # type: ignore[arg-type]
@@ -106,7 +110,7 @@ def test_downloader_replaces_existing_non_pdf_file(tmp_path: Path) -> None:
 
 
 def test_downloader_force_replaces_existing_valid_pdf(tmp_path: Path) -> None:
-    existing = tmp_path / "root-1.pdf"
+    existing = tmp_path / "root-1-v5.pdf"
     existing.write_bytes(b"%PDF- old")
     fake_client = FakeClient()
     downloader = PdfDownloader(fake_client)  # type: ignore[arg-type]
@@ -125,13 +129,13 @@ def test_downloader_force_replaces_existing_valid_pdf(tmp_path: Path) -> None:
 
 
 def test_downloader_bulk_skips_unchanged_manifest_version(tmp_path: Path) -> None:
-    existing = tmp_path / "root-1.pdf"
+    existing = tmp_path / "root-1-v5.pdf"
     existing.write_bytes(b"%PDF- already here")
     manifest = tmp_path / "downloaded_pages.md"
     manifest.write_text(
         "| Page ID | Title | URL | Version | Version Date | PDF |\n"
         "| --- | --- | --- | --- | --- | --- |\n"
-        "| 1 | Root |  | 5 |  | root-1.pdf |\n",
+        "| 1 | Root |  | 5 |  | root-1-v5.pdf |\n",
         encoding="utf-8",
     )
     fake_client = FakeClient()
@@ -148,6 +152,45 @@ def test_downloader_bulk_skips_unchanged_manifest_version(tmp_path: Path) -> Non
     assert summary.skipped_unchanged == [existing]
     assert summary.exported == []
     assert fake_client.downloaded == []
+
+
+def test_downloader_skips_unchanged_version_from_filename_without_manifest(tmp_path: Path) -> None:
+    existing = tmp_path / "root-1-v5.pdf"
+    existing.write_bytes(b"%PDF- already here")
+    fake_client = FakeClient()
+    downloader = PdfDownloader(fake_client)  # type: ignore[arg-type]
+
+    summary = downloader.download(
+        space_key="DOC",
+        titles=["Root"],
+        output_dir=tmp_path,
+        include_children=False,
+        skip_unchanged=True,
+    )
+
+    assert summary.skipped_unchanged == [existing]
+    assert summary.exported == []
+    assert fake_client.downloaded == []
+
+
+def test_downloader_downloads_changed_version_despite_existing_old_pdf(tmp_path: Path) -> None:
+    old_pdf = tmp_path / "root-1-v4.pdf"
+    old_pdf.write_bytes(b"%PDF- old")
+    fake_client = FakeClient()
+    downloader = PdfDownloader(fake_client)  # type: ignore[arg-type]
+
+    summary = downloader.download(
+        space_key="DOC",
+        titles=["Root"],
+        output_dir=tmp_path,
+        include_children=False,
+        skip_unchanged=True,
+    )
+
+    new_pdf = tmp_path / "root-1-v5.pdf"
+    assert summary.exported == [new_pdf]
+    assert summary.skipped == []
+    assert fake_client.downloaded == [("1", new_pdf)]
 
 
 def test_downloader_can_combine_children_into_single_pdf(tmp_path: Path) -> None:

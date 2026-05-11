@@ -842,6 +842,7 @@ def _prompt_download_pages(
             output_dir=output_dir,
             include_children=False,
             force=force,
+            skip_unchanged=True,
             combine_children=True,
         )
         _print_summary(summary, output_dir)

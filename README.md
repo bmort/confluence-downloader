@@ -7,7 +7,8 @@
 Turn Confluence Data Center pages into clean PDF context packs for LLM workflows. The CLI
 can download one page, many named pages, or whole page trees; combine each page tree into
 a single PDF by default; generate bulk download configs from a space tree; and skip
-unchanged pages in bulk mode by comparing Confluence versions with the local manifest.
+unchanged pages in bulk and prompted-download flows by comparing Confluence versions with
+the local manifest.
 
 ## ✨ What It Does
 
@@ -17,7 +18,7 @@ unchanged pages in bulk mode by comparing Confluence versions with the local man
 | Download a page and all descendants                 | Add `--include-children`                                      |
 | Get one PDF per page instead of a combined tree PDF | Add `--separate-pages`                                        |
 | Download pages across multiple spaces               | Use `confluence-downloader bulk --config pages.json`                 |
-| Skip pages already downloaded at the same version   | Use bulk mode, which reads `downloaded_pages.md`              |
+| Skip pages already downloaded at the same version   | Use bulk or `--ask-download`, which read `downloaded_pages.md` |
 | Discover pages and build a bulk config              | Use `confluence-downloader list --bulk-config pages.json`            |
 | Search for matching page titles                     | Use `confluence-downloader search "architecture" --space DOC` |
 | Handle rate limits                                  | Add `--request-delay`, `--retry-backoff`, and `--max-retries` |
@@ -228,9 +229,11 @@ uv run confluence-downloader bulk --config pages.json --group-by-space
 
 ## ✅ Version-Aware Skipping
 
-Bulk mode uses each space's `downloaded_pages.md` manifest as a version cache. Before
-downloading a page, it resolves the current Confluence version and compares it with the
-manifest row for that page ID.
+Bulk mode and `list`/`search` prompted downloads use each space's
+`downloaded_pages.md` manifest as a version cache. Before downloading a page, the tool
+resolves the current Confluence version and compares it with the manifest row for that
+page ID. Versioned filenames are also checked as a fallback when the manifest is missing
+or stale.
 
 A page is skipped when all of these are true:
 
@@ -379,7 +382,7 @@ path.
 Filenames use the slugified page title, then the page ID, to avoid collisions:
 
 ```text
-architecture-overview-123456.pdf
+architecture-overview-123456-v7.pdf
 architecture-overview-combined-123456.pdf
 ```
 

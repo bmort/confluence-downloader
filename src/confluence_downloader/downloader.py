@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -208,7 +209,8 @@ class PdfDownloader:
 
 
 def build_pdf_filename(page: Page) -> str:
-    return f"{slugify_title(page.title)}-{page.id}.pdf"
+    version = "" if page.version is None else f"-v{page.version}"
+    return f"{slugify_title(page.title)}-{page.id}{version}.pdf"
 
 
 def build_combined_pdf_filename(page: Page) -> str:
@@ -219,11 +221,16 @@ def find_unchanged_pdf(output_dir: Path, page: Page, manifest_entries: dict) -> 
     if page.version is None:
         return None
     entry = manifest_entries.get(page.id)
-    if not entry or entry.version != page.version:
-        return None
-    candidate = output_dir / entry.pdf_name
-    if candidate.exists() and is_pdf_file(candidate):
-        return candidate
+    if entry and entry.version == page.version:
+        candidate = output_dir / entry.pdf_name
+        if candidate.exists() and is_pdf_file(candidate):
+            return candidate
+    filename_candidate = output_dir / build_pdf_filename(page)
+    if filename_candidate.exists() and is_pdf_file(filename_candidate):
+        return filename_candidate
+    for candidate in output_dir.glob(f"*-{page.id}-v*.pdf"):
+        if _filename_version(candidate, page.id) == page.version and is_pdf_file(candidate):
+            return candidate
     return None
 
 
@@ -237,3 +244,10 @@ def all_pages_unchanged(output_dir: Path, pages: list[Page], manifest_entries: d
             return False
         destinations.add(unchanged)
     return len(destinations) == 1
+
+
+def _filename_version(path: Path, page_id: str) -> int | None:
+    match = re.search(rf"-{re.escape(page_id)}-v([0-9]+)\.pdf$", path.name)
+    if not match:
+        return None
+    return int(match.group(1))
