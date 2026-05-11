@@ -78,21 +78,32 @@ DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib uv run confluence-downloader search
 Search output is a table with Page ID, Space, Title, and URL. Use the exact returned title
 when calling `download` or creating a bulk config.
 
-Use `list-space` when the user describes a space or subtree but not exact page titles:
+Add `--ask-download` or `-a` with `--output-dir ./pdfs` to prompt for downloading all
+returned matches after the search table is printed. Prompted downloads always use at
+least `normal` progress verbosity, even if `--verbosity quiet` is supplied.
+
+Add `--bulk-config pages.json` to create or update a bulk config from the returned
+matches. Use `--bulk-include-children` when the generated entries should pull page
+subtrees later.
+
+Use `list` when the user describes a space or subtree but not exact page titles:
 
 ```bash
-DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib uv run confluence-downloader list-space --space DOC --depth 2
+DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib uv run confluence-downloader list --space DOC --depth 2
 ```
 
 Create or update a bulk config from final-depth pages:
 
 ```bash
-DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib uv run confluence-downloader list-space --space DOC --depth 2 --bulk-config pages.json
+DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib uv run confluence-downloader list --space DOC --depth 2 --bulk-config pages.json
 ```
 
 Add `--root-title "Title"` to start below a page. Use `--no-bulk-include-children` when generated config entries should download only those listed pages.
 
-`list-space` output quotes titles and separates metadata with `|`, for example:
+Add `--ask-download` or `-a` with `--output-dir ./pdfs` to prompt for downloading every
+listed page after the tree is printed.
+
+`list` output quotes titles and separates metadata with `|`, for example:
 
 ```text
 - "Architecture [draft]" | id=123 version=7

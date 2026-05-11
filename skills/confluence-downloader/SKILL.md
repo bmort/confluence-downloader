@@ -13,7 +13,7 @@ Use the local `confluence-downloader` CLI to make sure the requested Confluence 
    - Bulk config supplied or implied: use `bulk`.
    - Approximate or uncertain page title: use `search` first, preferably with `--space` if the user provides a space.
    - Space plus page titles: use `download` for ad hoc pulls, or create a temporary bulk config when version-aware skipping matters.
-   - Space tree discovery: use `list-space` first, optionally writing a bulk config, then run `bulk`.
+   - Space tree discovery: use `list` first, optionally writing a bulk config, then run `bulk`.
 2. Check authentication before network calls: `CONFLUENCE_BASE_URL` and `CONFLUENCE_PAT` should be set, unless the user provides `--base-url` and `--token` explicitly.
 3. Use existing downloads by default. Do not pass `--force` unless the user asks to refresh or stale PDFs are suspected.
 4. After downloading, inspect `downloaded_pages.md` and the PDF files under the output directory. Use the PDF skill or normal PDF extraction tools for review.
@@ -48,7 +48,7 @@ DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib uv run confluence-downloader downlo
 For discovery and repeatable future pulls:
 
 ```bash
-DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib uv run confluence-downloader list-space --space DOC --depth 2 --bulk-config pages.json
+DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib uv run confluence-downloader list --space DOC --depth 2 --bulk-config pages.json
 DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib uv run confluence-downloader bulk --config pages.json --output-dir ./pdfs
 ```
 

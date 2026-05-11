@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from collections import defaultdict
 from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated
@@ -11,6 +12,7 @@ from .client import ConfluenceClient
 from .config import BulkPageRequest, read_bulk_config, update_bulk_config
 from .downloader import PdfDownloader
 from .errors import ConfigError, ConfluencePdfError
+from .models import Page
 from .tree import TreePage, list_space_tree
 from .utils import merge_titles, normalize_base_url
 
@@ -282,7 +284,7 @@ def bulk(
         raise typer.Exit(code=1) from exc
 
 
-@app.command("list-space")
+@app.command("list")
 def list_space(
     ctx: typer.Context,
     space: Annotated[str | None, typer.Option("--space", "-s", help="Required: Confluence space key.")] = None,
@@ -315,6 +317,39 @@ def list_space(
             help="Optional: Set include_children for generated final-depth bulk config entries.",
         ),
     ] = True,
+    ask_download: Annotated[
+        bool,
+        typer.Option(
+            "--ask-download",
+            "-a",
+            help="Optional: After listing pages, prompt to download the listed pages.",
+        ),
+    ] = False,
+    output_dir: Annotated[
+        Path,
+        typer.Option(
+            "--output-dir",
+            "-o",
+            file_okay=False,
+            help="Optional: Directory where prompted downloads are written.",
+        ),
+    ] = Path("."),
+    force: Annotated[
+        bool,
+        typer.Option(
+            "--force",
+            "-f",
+            help="Optional: Regenerate prompted downloads even when a valid PDF already exists.",
+        ),
+    ] = False,
+    verbosity: Annotated[
+        str,
+        typer.Option(
+            "--verbosity",
+            "-v",
+            help="Optional: Prompted download progress log verbosity: quiet, normal, or verbose.",
+        ),
+    ] = "normal",
     base_url: Annotated[
         str | None,
         typer.Option(
@@ -378,24 +413,32 @@ def list_space(
                 root_title=root_title,
             )
 
-        for tree_page in tree_pages:
-            typer.echo(_format_tree_page(tree_page))
+            for tree_page in tree_pages:
+                typer.echo(_format_tree_page(tree_page))
 
-        final_depth_pages = [tree_page for tree_page in tree_pages if tree_page.depth == depth]
-        if bulk_config:
-            update_bulk_config(
-                bulk_config,
-                [
-                    BulkPageRequest(
-                        space=space,
-                        title=tree_page.page.title,
+            listed_pages = [tree_page.page for tree_page in tree_pages]
+            if ask_download:
+                _prompt_download_pages(
+                    client,
+                    listed_pages,
+                    output_dir=output_dir,
+                    force=force,
+                    verbosity=verbosity,
+                    fallback_space=space,
+                )
+
+            final_depth_pages = [tree_page for tree_page in tree_pages if tree_page.depth == depth]
+            if bulk_config:
+                update_bulk_config(
+                    bulk_config,
+                    _bulk_requests_from_pages(
+                        [tree_page.page for tree_page in final_depth_pages],
                         include_children=bulk_include_children,
-                    )
-                    for tree_page in final_depth_pages
-                ],
-            )
-            typer.echo(f"Bulk config updated: {bulk_config}")
-            typer.echo(f"Final-depth pages written: {len(final_depth_pages)}")
+                        fallback_space=space,
+                    ),
+                )
+                typer.echo(f"Bulk config updated: {bulk_config}")
+                typer.echo(f"Final-depth pages written: {len(final_depth_pages)}")
     except ConfluencePdfError as exc:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
@@ -416,6 +459,56 @@ def search(
         int,
         typer.Option("--limit", "-l", min=1, max=100, help="Optional: Maximum number of matches to return."),
     ] = 10,
+    ask_download: Annotated[
+        bool,
+        typer.Option(
+            "--ask-download",
+            "-a",
+            help="Optional: After showing matches, prompt to download the matched pages.",
+        ),
+    ] = False,
+    bulk_config: Annotated[
+        Path | None,
+        typer.Option(
+            "--bulk-config",
+            "-c",
+            dir_okay=False,
+            help="Optional: Create or update a JSON bulk config with the matched pages.",
+        ),
+    ] = None,
+    bulk_include_children: Annotated[
+        bool,
+        typer.Option(
+            "--bulk-include-children/--no-bulk-include-children",
+            "-i/-I",
+            help="Optional: Set include_children for generated search-result bulk config entries.",
+        ),
+    ] = False,
+    output_dir: Annotated[
+        Path,
+        typer.Option(
+            "--output-dir",
+            "-o",
+            file_okay=False,
+            help="Optional: Directory where prompted downloads are written.",
+        ),
+    ] = Path("."),
+    force: Annotated[
+        bool,
+        typer.Option(
+            "--force",
+            "-f",
+            help="Optional: Regenerate prompted downloads even when a valid PDF already exists.",
+        ),
+    ] = False,
+    verbosity: Annotated[
+        str,
+        typer.Option(
+            "--verbosity",
+            "-v",
+            help="Optional: Prompted download progress log verbosity: quiet, normal, or verbose.",
+        ),
+    ] = "normal",
     base_url: Annotated[
         str | None,
         typer.Option(
@@ -469,16 +562,36 @@ def search(
         ) as client:
             pages = client.search_pages_by_title(query, space_key=space, limit=limit)
 
-        if not pages:
-            scope = f" in space {space}" if space else ""
-            typer.echo(f'No matching pages found for "{query}"{scope}.')
-            return
+            if not pages:
+                scope = f" in space {space}" if space else ""
+                typer.echo(f'No matching pages found for "{query}"{scope}.')
+                return
 
-        rows = [
-            ("Page ID", "Space", "Title", "URL"),
-            *[(page.id, page.space, page.title, page.url) for page in pages],
-        ]
-        _print_table(rows)
+            rows = [
+                ("Page ID", "Space", "Title", "URL"),
+                *[(page.id, page.space, page.title, page.url) for page in pages],
+            ]
+            _print_table(rows)
+
+            if ask_download:
+                _prompt_download_pages(
+                    client,
+                    pages,
+                    output_dir=output_dir,
+                    force=force,
+                    verbosity=verbosity,
+                )
+
+            if bulk_config:
+                update_bulk_config(
+                    bulk_config,
+                    _bulk_requests_from_pages(
+                        pages,
+                        include_children=bulk_include_children,
+                    ),
+                )
+                typer.echo(f"Bulk config updated: {bulk_config}")
+                typer.echo(f"Matched pages written: {len(pages)}")
     except ConfluencePdfError as exc:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
@@ -513,6 +626,83 @@ def _print_summary(summary, output_path: Path) -> None:
     _print_box("📊 Group Summary", rows)
     for failure in summary.failures:
         typer.echo(f"- {failure.page.id} {failure.page.title}: {failure.error}", err=True)
+
+
+def _prompt_download_pages(
+    client: ConfluenceClient,
+    pages: list[Page],
+    *,
+    output_dir: Path,
+    force: bool,
+    verbosity: str,
+    fallback_space: str | None = None,
+) -> None:
+    if not pages:
+        return
+    if not typer.confirm(f"Download {len(pages)} listed page{'s' if len(pages) != 1 else ''}?", default=False):
+        typer.echo("Download skipped.")
+        return
+
+    failed = False
+    downloader = PdfDownloader(client, logger=_make_logger(_prompt_download_verbosity(verbosity)))
+    for space, titles in _titles_by_space(pages, fallback_space=fallback_space).items():
+        summary = downloader.download(
+            space_key=space,
+            titles=titles,
+            output_dir=output_dir,
+            include_children=False,
+            force=force,
+            combine_children=True,
+        )
+        _print_summary(summary, output_dir)
+        if summary.failed:
+            failed = True
+
+    if failed:
+        raise typer.Exit(code=1)
+
+
+def _titles_by_space(pages: list[Page], *, fallback_space: str | None = None) -> dict[str, list[str]]:
+    titles_by_space: dict[str, list[str]] = defaultdict(list)
+    for page in pages:
+        space = page.space or fallback_space
+        if space is None:
+            raise ConfigError(f'Page "{page.title}" does not include a space key.')
+        if page.title not in titles_by_space[space]:
+            titles_by_space[space].append(page.title)
+    return dict(titles_by_space)
+
+
+def _bulk_requests_from_pages(
+    pages: list[Page],
+    *,
+    include_children: bool,
+    fallback_space: str | None = None,
+) -> list[BulkPageRequest]:
+    requests: list[BulkPageRequest] = []
+    seen: set[tuple[str, str]] = set()
+    for page in pages:
+        space = page.space or fallback_space
+        if space is None:
+            raise ConfigError(f'Page "{page.title}" does not include a space key.')
+        key = (space, page.title)
+        if key in seen:
+            continue
+        seen.add(key)
+        requests.append(
+            BulkPageRequest(
+                space=space,
+                title=page.title,
+                include_children=include_children,
+            )
+        )
+    return requests
+
+
+def _prompt_download_verbosity(verbosity: str) -> str:
+    if verbosity == "quiet":
+        return "normal"
+    return verbosity
 
 
 def _print_box(title: str, rows: list[tuple[str, str]]) -> None:

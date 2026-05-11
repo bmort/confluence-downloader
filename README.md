@@ -18,7 +18,7 @@ unchanged pages in bulk mode by comparing Confluence versions with the local man
 | Get one PDF per page instead of a combined tree PDF | Add `--separate-pages`                                        |
 | Download pages across multiple spaces               | Use `confluence-downloader bulk --config pages.json`                 |
 | Skip pages already downloaded at the same version   | Use bulk mode, which reads `downloaded_pages.md`              |
-| Discover pages and build a bulk config              | Use `confluence-downloader list-space --bulk-config pages.json`      |
+| Discover pages and build a bulk config              | Use `confluence-downloader list --bulk-config pages.json`            |
 | Search for matching page titles                     | Use `confluence-downloader search "architecture" --space DOC` |
 | Handle rate limits                                  | Add `--request-delay`, `--retry-backoff`, and `--max-retries` |
 
@@ -171,21 +171,22 @@ uv run confluence-downloader download \
 
 | Option               | Short      | Applies to                        | Default                                       | Meaning                                                                           |
 | -------------------- | ---------- | --------------------------------- | --------------------------------------------- | --------------------------------------------------------------------------------- |
-| `--space`            | `-s`       | `download`, `list-space`, `search` | Required for `download` and `list-space`      | Confluence space key, or search space filter                                      |
+| `--space`            | `-s`       | `download`, `list`, `search`       | Required for `download` and `list`            | Confluence space key, or search space filter                                      |
 | `--title`            | `-t`       | `download`                        | Required unless `--titles-file` is used       | Confluence page title; repeat for multiple pages                                  |
 | `--titles-file`      | `-T`       | `download`                        | Required unless `--title` is used             | Newline-delimited page titles                                                     |
 | `--config`           | `-c`       | `bulk`                            | Required                                      | JSON bulk download configuration                                                  |
 | `--include-children` | `-i`       | `download`, `bulk` config entries | Off for `download`; configurable in bulk JSON | Include all descendants, not only direct children                                 |
 | `--combine-children` | `-c`, `-C` | `download`, `bulk`                | On                                            | Write one combined PDF per requested root when children are included              |
 | `--separate-pages`   | `-p`       | `download`, `bulk`                | Off                                           | Write one PDF per page instead of one combined tree PDF                           |
-| `--force`            | `-f`       | `download`, `bulk`                | Off                                           | Regenerate even when an existing PDF or manifest version would normally skip work |
-| `--output-dir`       | `-o`       | `download`, `bulk`                | Current directory                             | Directory where PDFs and `downloaded_pages.md` are written                        |
-| `--verbosity`        | `-v`       | `download`, `bulk`                | `normal`                                      | Choose `quiet`, `normal`, or `verbose` progress logs                              |
+| `--force`            | `-f`       | `download`, `bulk`, prompted downloads | Off                                      | Regenerate even when an existing PDF or manifest version would normally skip work |
+| `--output-dir`       | `-o`       | `download`, `bulk`, prompted downloads | Current directory                        | Directory where PDFs and `downloaded_pages.md` are written                        |
+| `--ask-download`     | `-a`       | `list`, `search`                  | Off                                           | Prompt to download the listed or matched pages after showing results              |
+| `--verbosity`        | `-v`       | `download`, `bulk`, prompted downloads | `normal`                                 | Choose `quiet`, `normal`, or `verbose`; prompted downloads use at least `normal`  |
 | `--base-url`         | `-b`       | all commands                      | `CONFLUENCE_BASE_URL`                         | Confluence base URL                                                               |
 | `--token`            | `-k`       | all commands                      | `CONFLUENCE_PAT`                              | Confluence Personal Access Token                                                  |
 
 Other command-specific short aliases are shown in `--help`: `-d`, `-r`, and `-m`
-cover request delay, retry backoff, and max retries where available; `list-space`
+cover request delay, retry backoff, and max retries where available; `list`
 uses `-d` for `--depth`, `-r` for `--root-title`, `-c` for `--bulk-config`,
 `-i/-I` for bulk config include-children, and `-D/-R` for request delay/retry
 backoff. `bulk` uses `-g/-G` for grouping mode.
@@ -262,16 +263,31 @@ Limit the number of returned matches:
 uv run confluence-downloader search "architecture overview" --space DOC --limit 5
 ```
 
+Prompt to download the returned matches:
+
+```bash
+uv run confluence-downloader search "architecture overview" --space DOC -a --output-dir ./pdfs
+```
+
+Prompted downloads always show at least `normal` progress logs, even if `--verbosity quiet`
+is supplied.
+
+Create or update a bulk config from the returned matches:
+
+```bash
+uv run confluence-downloader search "architecture overview" --space DOC --bulk-config pages.json
+```
+
 List a space page tree to a chosen depth. Root pages are depth 1:
 
 ```bash
-uv run confluence-downloader list-space --space DOC --depth 2
+uv run confluence-downloader list --space DOC --depth 2
 ```
 
 List below a specific page title instead of the whole space:
 
 ```bash
-uv run confluence-downloader list-space \
+uv run confluence-downloader list \
   --space DOC \
   --root-title "Architecture" \
   --depth 2
@@ -280,10 +296,16 @@ uv run confluence-downloader list-space \
 Create or update a bulk config from the pages at the final listed depth:
 
 ```bash
-uv run confluence-downloader list-space \
+uv run confluence-downloader list \
   --space DOC \
   --depth 2 \
   --bulk-config pages.json
+```
+
+Prompt to download every listed page:
+
+```bash
+uv run confluence-downloader list --space DOC --depth 2 -a --output-dir ./pdfs
 ```
 
 Generated entries default to `"include_children": true`, so those final-depth pages become

@@ -150,6 +150,18 @@ helper command:
 uv run confluence-downloader search "architecture overview" --space DOC --limit 5
 ```
 
+You can also ask the CLI to prompt for downloading the returned matches:
+
+```bash
+uv run confluence-downloader search "architecture overview" --space DOC -a --output-dir pdfs
+```
+
+Or create a bulk config from those matches:
+
+```bash
+uv run confluence-downloader search "architecture overview" --space DOC --bulk-config pages.json
+```
+
 From any other directory, pass the clone explicitly:
 
 ```bash
