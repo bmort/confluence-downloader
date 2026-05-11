@@ -320,6 +320,11 @@ Prompt to download every listed page:
 uv run confluence-downloader list --space DOC --depth 2 -a --output-dir ./pdfs
 ```
 
+Add `--yes` or `-y` to auto-confirm that prompted download.
+
+If `--output-dir` is provided while writing a relative `--bulk-config`, the config file
+is written inside that output directory.
+
 Generated entries default to `"include_children": true`, so those final-depth pages become
 subtree roots for later bulk downloads. Use `--no-bulk-include-children` when you want the
 generated config to download only the listed pages.
@@ -371,7 +376,7 @@ path.
 └── downloaded_pages.md
 ```
 
-Filenames include the page ID to avoid collisions:
+Filenames use the slugified page title, then the page ID, to avoid collisions:
 
 ```text
 architecture-overview-123456.pdf

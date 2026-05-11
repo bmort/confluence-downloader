@@ -110,6 +110,8 @@ Add `--root-title "Title"` to start below a page. Use `--no-bulk-include-childre
 Add `--ask-download` or `-a` with `--output-dir ./pdfs` to prompt for downloading every
 listed page after the tree is printed.
 Add `--yes` or `-y` to auto-confirm that prompted download.
+When writing a relative `--bulk-config`, pass `--output-dir` to place the generated file
+inside that output directory.
 
 `list` output quotes titles and separates metadata with `|`, for example:
 
@@ -125,4 +127,5 @@ metadata, not part of the title.
 
 PDFs are written under `<output-dir>/<SPACE>/`. Each space directory may contain `downloaded_pages.md`, a manifest table with Page ID, Title, URL, Version, Version Date, and PDF filename.
 
-Filenames include an index, page ID, slugified title, and sometimes `-combined`.
+Filenames use the slugified page title, then the page ID, and combined trees add
+`-combined` before the page ID.

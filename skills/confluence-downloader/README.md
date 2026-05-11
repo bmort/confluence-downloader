@@ -167,6 +167,8 @@ uv run confluence-downloader search "architecture overview" --space DOC --bulk-c
 If you combine `--ask-download`, `--bulk-config`, and `--output-dir`, accepting the
 download prompt stores that output folder in `pages.json` for later `bulk --config`
 runs.
+If `--output-dir` is provided while writing a relative `--bulk-config`, the config file
+is written inside that output directory.
 
 From any other directory, pass the clone explicitly:
 
