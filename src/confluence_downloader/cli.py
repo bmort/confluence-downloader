@@ -563,20 +563,22 @@ def list_space(
                     fallback_space=space,
                 )
 
-            final_depth_pages = [tree_page for tree_page in tree_pages if tree_page.depth == depth]
             if bulk_config:
+                config_pages = listed_pages if download_confirmed else [
+                    tree_page.page for tree_page in tree_pages if tree_page.depth == depth
+                ]
                 resolved_bulk_config = _generated_bulk_config_path(ctx, bulk_config, output_dir)
                 update_bulk_config(
                     resolved_bulk_config,
                     _bulk_requests_from_pages(
-                        [tree_page.page for tree_page in final_depth_pages],
+                        config_pages,
                         include_children=bulk_include_children,
                         fallback_space=space,
                     ),
                     output_dir=output_dir if download_confirmed else None,
                 )
                 typer.echo(f"Bulk config updated: {resolved_bulk_config}")
-                typer.echo(f"Final-depth pages written: {len(final_depth_pages)}")
+                typer.echo(f"Pages written: {len(config_pages)}")
     except ConfluencePdfError as exc:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(code=1) from exc

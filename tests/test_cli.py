@@ -804,6 +804,58 @@ def test_cli_list_space_writes_relative_bulk_config_under_output_dir(monkeypatch
     assert config.exists()
 
 
+def test_cli_list_space_prompted_bulk_config_uses_downloaded_listed_pages(monkeypatch, tmp_path: Path) -> None:
+    FakeDownloader.calls = []
+    output_dir = tmp_path / "updates"
+    config = output_dir / "pages.json"
+    monkeypatch.setenv("CONFLUENCE_BASE_URL", "https://confluence.example.test")
+    monkeypatch.setenv("CONFLUENCE_PAT", "env-token")
+    monkeypatch.setattr(cli, "ConfluenceClient", FakeConfluenceClient)
+    monkeypatch.setattr(cli, "PdfDownloader", FakeDownloader)
+    monkeypatch.setattr(
+        cli,
+        "list_space_tree",
+        lambda client, space_key, max_depth, root_title=None: [
+            TreePage(page=Page(id="1", title="Root"), depth=1, path=("Root",)),
+            TreePage(page=Page(id="2", title="Child"), depth=2, path=("Root", "Child")),
+        ],
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "list",
+            "-s",
+            "DOC",
+            "-d",
+            "3",
+            "--ask-download",
+            "-y",
+            "-o",
+            str(output_dir),
+            "-c",
+            "pages.json",
+        ],
+    )
+
+    config_text = config.read_text(encoding="utf-8")
+    assert result.exit_code == 0
+    assert "Pages written: 2" in result.output
+    assert '"output_dir": "' in config_text
+    assert '"title": "Root"' in config_text
+    assert '"title": "Child"' in config_text
+    assert FakeDownloader.calls == [
+        {
+            "space_key": "DOC",
+            "titles": ["Root", "Child"],
+            "output_dir": output_dir,
+            "include_children": False,
+            "force": False,
+            "combine_children": True,
+        }
+    ]
+
+
 def test_cli_list_space_accepts_root_title(monkeypatch) -> None:
     captured = {}
     monkeypatch.setenv("CONFLUENCE_BASE_URL", "https://confluence.example.test")
