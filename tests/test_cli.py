@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -102,6 +103,7 @@ class FakeConfluenceClient:
                 title="Architecture Overview",
                 url="https://confluence.example.test/display/DOC/Architecture+Overview",
                 space="DOC",
+                version_when="2026-05-01T08:30:00.000Z",
             )
         ]
 
@@ -144,8 +146,25 @@ def test_cli_search_uses_query_and_space_filter(monkeypatch) -> None:
         {"query": "arch overview", "space_key": "DOC", "limit": 5}
     ]
     assert "Page ID" in result.output
+    assert "Last Edited" in result.output
+    assert "2026-05-01T08:30:00.000Z" not in result.output
     assert "Architecture Overview" in result.output
     assert "https://confluence.example.test/display/DOC/Architecture+Overview" in result.output
+
+
+def test_format_last_edited_age_reports_days_old() -> None:
+    now = datetime(2026, 5, 12, 12, 0, tzinfo=timezone.utc)
+
+    assert cli._format_last_edited_age("2026-04-12T12:00:00.000Z", now=now) == "-30d"
+
+
+def test_format_last_edited_age_handles_missing_invalid_and_future_values() -> None:
+    now = datetime(2026, 5, 12, 12, 0, tzinfo=timezone.utc)
+    future = now + timedelta(days=1)
+
+    assert cli._format_last_edited_age("", now=now) == ""
+    assert cli._format_last_edited_age("not-a-date", now=now) == ""
+    assert cli._format_last_edited_age(future.isoformat(), now=now) == "0d"
 
 
 def test_cli_search_reports_no_matches(monkeypatch) -> None:

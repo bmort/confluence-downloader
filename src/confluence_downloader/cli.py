@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import os
 from collections import defaultdict
 from collections.abc import Callable
@@ -750,8 +751,17 @@ def search(
                 return
 
             rows = [
-                ("Page ID", "Space", "Title", "URL"),
-                *[(page.id, page.space, page.title, page.url) for page in pages],
+                ("Page ID", "Space", "Last Edited", "Title", "URL"),
+                *[
+                    (
+                        page.id,
+                        page.space,
+                        _format_last_edited_age(page.version_when),
+                        page.title,
+                        page.url,
+                    )
+                    for page in pages
+                ],
             ]
             _print_table(rows)
 
@@ -919,6 +929,25 @@ def _print_table(rows: list[tuple[str, ...]]) -> None:
         typer.echo("  ".join(value.ljust(widths[index]) for index, value in enumerate(row)))
         if row_index == 0:
             typer.echo("  ".join("-" * width for width in widths))
+
+
+def _format_last_edited_age(value: str, *, now: datetime | None = None) -> str:
+    if not value:
+        return ""
+    normalized = value.removesuffix("Z") + "+00:00" if value.endswith("Z") else value
+    try:
+        edited = datetime.fromisoformat(normalized)
+    except ValueError:
+        return ""
+    if edited.tzinfo is None:
+        edited = edited.replace(tzinfo=timezone.utc)
+    reference = now or datetime.now(timezone.utc)
+    if reference.tzinfo is None:
+        reference = reference.replace(tzinfo=timezone.utc)
+    age_days = (reference - edited.astimezone(timezone.utc)).days
+    if age_days <= 0:
+        return "0d"
+    return f"-{age_days}d"
 
 
 def _make_logger(verbosity: str) -> LogFn | None:
