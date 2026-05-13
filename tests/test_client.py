@@ -24,7 +24,7 @@ def test_resolve_page_by_title_success() -> None:
         assert request.url.path == "/confluence/rest/api/content"
         assert request.url.params["spaceKey"] == "DOC"
         assert request.url.params["title"] == "Root"
-        assert request.url.params["expand"] == "version"
+        assert request.url.params["expand"] == "version,space"
         return httpx.Response(
             200,
             json={
@@ -34,6 +34,7 @@ def test_resolve_page_by_title_success() -> None:
                         "title": "Root",
                         "_links": {"webui": "/display/DOC/Root"},
                         "version": {"number": 7, "when": "2026-05-01T08:30:00.000Z"},
+                        "space": {"key": "DOC"},
                     }
                 ]
             },
@@ -46,6 +47,7 @@ def test_resolve_page_by_title_success() -> None:
             url="https://confluence.example.test/confluence/display/DOC/Root",
             version=7,
             version_when="2026-05-01T08:30:00.000Z",
+            space="DOC",
         )
 
 
@@ -359,3 +361,46 @@ def test_get_page_export_view_prefers_export_view_over_styled_view() -> None:
 
     with make_client(handler) as client:
         assert client.get_page_export_view("123") == "<p>Print view</p>"
+
+
+def test_get_page_styled_view_prefers_styled_view_over_export_view() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/rest/api/content/123"):
+            assert request.url.params["expand"] == "body.styled_view,body.export_view"
+            return httpx.Response(
+                200,
+                json={
+                    "body": {
+                        "styled_view": {"value": "<p>Screen view</p>"},
+                        "export_view": {"value": "<p>Print view</p>"},
+                    }
+                },
+            )
+        return httpx.Response(404)
+
+    with make_client(handler) as client:
+        assert client.get_page_styled_view("123") == "<p>Screen view</p>"
+
+
+def test_download_html_writes_styled_view_html(tmp_path: Path) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/rest/api/content/123"):
+            return httpx.Response(
+                200,
+                json={
+                    "body": {
+                        "styled_view": {"value": '<p><img src="/download/attachments/123/image.png"></p>'},
+                        "export_view": {"value": "<p>Print view</p>"},
+                    }
+                },
+            )
+        return httpx.Response(404)
+
+    output = tmp_path / "page.html"
+    with make_client(handler) as client:
+        client.download_html(Page(id="123", title="Root", url="https://confluence.example.test/x"), output)
+
+    html = output.read_text(encoding="utf-8")
+    assert "<title>Root</title>" in html
+    assert '<base href="https://confluence.example.test/confluence/">' in html
+    assert '<img src="https://confluence.example.test/confluence/download/attachments/123/image.png">' in html

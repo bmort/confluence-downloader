@@ -101,6 +101,14 @@ def download(
             rich_help_panel=OPTIONAL_HELP_PANEL,
         ),
     ] = False,
+    download_html: Annotated[
+        bool,
+        typer.Option(
+            "--download-html",
+            help="Also download each Confluence page as a standalone HTML file.",
+            rich_help_panel=OPTIONAL_HELP_PANEL,
+        ),
+    ] = False,
     base_url: Annotated[
         str | None,
         typer.Option(
@@ -191,6 +199,7 @@ def download(
                 include_children=include_children,
                 force=force,
                 combine_children=combine_children,
+                download_html=download_html,
             )
 
         _print_summary(summary, output_dir)
@@ -252,6 +261,14 @@ def bulk(
             rich_help_panel=OPTIONAL_HELP_PANEL,
         ),
     ] = True,
+    download_html: Annotated[
+        bool,
+        typer.Option(
+            "--download-html",
+            help="Also download each Confluence page as a standalone HTML file.",
+            rich_help_panel=OPTIONAL_HELP_PANEL,
+        ),
+    ] = False,
     base_url: Annotated[
         str | None,
         typer.Option(
@@ -367,6 +384,7 @@ def bulk(
                     force=force,
                     skip_unchanged=True,
                     combine_children=combine_children,
+                    download_html=download_html,
                 )
                 _print_summary(summary, resolved_output_dir)
                 if summary.failed:
@@ -458,6 +476,14 @@ def list_space(
             "--force",
             "-f",
             help="Regenerate prompted downloads even when a valid PDF already exists.",
+            rich_help_panel=OPTIONAL_HELP_PANEL,
+        ),
+    ] = False,
+    download_html: Annotated[
+        bool,
+        typer.Option(
+            "--download-html",
+            help="With --ask-download, also download each Confluence page as HTML.",
             rich_help_panel=OPTIONAL_HELP_PANEL,
         ),
     ] = False,
@@ -562,6 +588,7 @@ def list_space(
                     verbosity=verbosity,
                     assume_yes=yes,
                     fallback_space=space,
+                    download_html=download_html,
                 )
 
             if bulk_config:
@@ -665,6 +692,14 @@ def search(
             "--force",
             "-f",
             help="Regenerate prompted downloads even when a valid PDF already exists.",
+            rich_help_panel=OPTIONAL_HELP_PANEL,
+        ),
+    ] = False,
+    download_html: Annotated[
+        bool,
+        typer.Option(
+            "--download-html",
+            help="With --ask-download, also download each Confluence page as HTML.",
             rich_help_panel=OPTIONAL_HELP_PANEL,
         ),
     ] = False,
@@ -774,6 +809,7 @@ def search(
                     force=force,
                     verbosity=verbosity,
                     assume_yes=yes,
+                    download_html=download_html,
                 )
 
             if bulk_config:
@@ -819,6 +855,8 @@ def _print_summary(summary, output_path: Path) -> None:
     ]
     if summary.manifest_path:
         rows.append(("Manifest", str(summary.manifest_path)))
+    if summary.html_manifest_path:
+        rows.append(("HTML manifest", str(summary.html_manifest_path)))
     _print_box("📊 Group Summary", rows)
     for failure in summary.failures:
         typer.echo(f"- {failure.page.id} {failure.page.title}: {failure.error}", err=True)
@@ -833,6 +871,7 @@ def _prompt_download_pages(
     verbosity: str,
     assume_yes: bool,
     fallback_space: str | None = None,
+    download_html: bool = False,
 ) -> bool:
     if not pages:
         return False
@@ -854,6 +893,7 @@ def _prompt_download_pages(
             force=force,
             skip_unchanged=True,
             combine_children=True,
+            download_html=download_html,
         )
         _print_summary(summary, output_dir)
         if summary.failed:

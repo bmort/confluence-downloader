@@ -10,7 +10,7 @@ Command prefix on macOS:
 DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib uv run confluence-downloader ...
 ```
 
-The library path is needed for WeasyPrint fallback rendering.
+The library path is needed for WeasyPrint fallback PDF rendering.
 
 ## Authentication
 
@@ -23,7 +23,7 @@ Equivalent flags are `--base-url` and `--token`. Avoid echoing tokens in final r
 
 ## Bulk Config
 
-Bulk mode is the preferred repeatable mode because it uses each space's `downloaded_pages.md` manifest to skip pages whose Confluence version is unchanged.
+Bulk mode is the preferred repeatable mode because it uses `downloaded_pages.md` to skip pages whose Confluence version is unchanged.
 
 ```json
 {
@@ -49,6 +49,9 @@ Useful flags:
 - `--separate-pages`: write one PDF per page instead of a combined child tree PDF.
 - `--request-delay`, `--retry-backoff`, `--max-retries`: use for rate limits or large spaces.
 
+By default, downloads write PDFs plus manifests. Add `--download-html` to also write a
+close-to-original `.html` copy under `html/` for each Confluence page.
+
 ## Direct Download
 
 Use direct download for small ad hoc requests:
@@ -57,7 +60,7 @@ Use direct download for small ad hoc requests:
 DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib uv run confluence-downloader download --space DOC --title "Page" --output-dir ./pdfs
 ```
 
-Repeat `--title` for multiple titles. Add `--include-children` to fetch descendants. By default, child trees are combined into one PDF per root; add `--separate-pages` to get individual PDFs.
+Repeat `--title` for multiple titles. Add `--include-children` to fetch descendants. By default, child trees are combined into one PDF per root; add `--separate-pages` to get individual PDFs. Add `--download-html` to write one HTML copy per page.
 
 Direct download skips an existing valid destination PDF unless `--force` is used, but it does not do version-aware manifest skipping like bulk mode.
 
@@ -125,7 +128,11 @@ metadata, not part of the title.
 
 ## Output Layout
 
-PDFs are written under `<output-dir>/<SPACE>/`. Each space directory may contain `downloaded_pages.md`, a manifest table with Page ID, Title, URL, Version, Version Date, and PDF filename.
+PDF files are written directly under `<output-dir>`. When `--download-html` is used,
+page HTML copies are written under `<output-dir>/html/`. The output directory may
+contain `downloaded_pages.md`, a Markdown manifest table with Page ID, Title, URL,
+Version, Version Date, PDF filename, and optional HTML path. It may also contain
+`downloaded_pages.html`, a browser-friendly table generated from the same rows.
 
 Filenames use the slugified page title, then the page ID, and combined trees add
 `-combined` before the page ID.

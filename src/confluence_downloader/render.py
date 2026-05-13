@@ -5,10 +5,30 @@ import os
 import re
 import sys
 from typing import Callable
+from urllib.parse import urljoin
 
 from .models import Page
 
 UrlFetcher = Callable[[str], dict]
+
+
+def write_confluence_html(
+    *,
+    page: Page,
+    html: str,
+    destination: Path,
+    base_url: str,
+) -> None:
+    """Write a standalone HTML copy of a Confluence page."""
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if _is_full_html_document(html):
+        document = _inject_base_href(html, base_url)
+        document = _inject_source_metadata(document, page)
+    else:
+        document = _wrap_confluence_html_page(page, html, base_url)
+    document = _rewrite_root_relative_urls(document, base_url)
+    document = _prepare_confluence_html(document)
+    destination.write_text(document, encoding="utf-8")
 
 
 def render_html_pdf(
@@ -152,6 +172,74 @@ def _wrap_confluence_html(page: Page, body_html: str) -> str:
 """
 
 
+def _wrap_confluence_html_page(page: Page, body_html: str, base_url: str) -> str:
+    title = _escape_html(page.title)
+    source = _escape_html(page.url)
+    base = _escape_html(base_url.rstrip("/") + "/")
+    return f"""<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <base href="{base}">
+  <title>{title}</title>
+  <style>
+    body {{
+      color: #172b4d;
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 14px;
+      line-height: 1.4285715;
+      margin: 0 auto;
+      max-width: 1120px;
+      padding: 24px 32px 48px;
+    }}
+    h1, h2, h3, h4, h5, h6 {{
+      color: #172b4d;
+      line-height: 1.25;
+    }}
+    a {{ color: #0052cc; }}
+    img, svg {{
+      height: auto;
+      max-width: 100%;
+    }}
+    table {{
+      border-collapse: collapse;
+      margin: 0.8em 0 1em;
+      width: 100%;
+    }}
+    th, td {{
+      border: 1px solid #c1c7d0;
+      padding: 7px 10px;
+      vertical-align: top;
+    }}
+    th {{
+      background: #f4f5f7;
+      font-weight: 700;
+    }}
+    pre, code {{
+      background: #f4f5f7;
+      border-radius: 3px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }}
+    pre {{
+      overflow-x: auto;
+      padding: 12px;
+    }}
+    .confluence-downloader-metadata {{
+      color: #626f86;
+      font-size: 12px;
+      margin: 0 0 16px;
+    }}
+  </style>
+</head>
+<body>
+  <h1>{title}</h1>
+  <div class="confluence-downloader-metadata">Source: <a href="{source}">{source}</a></div>
+  {body_html}
+</body>
+</html>
+"""
+
+
 def _wrap_combined_confluence_html(title: str, sections: list[tuple[Page, str]]) -> str:
     safe_title = _escape_html(title)
     rendered_sections = "\n".join(_render_section(page, body_html) for page, body_html in sections)
@@ -285,6 +373,35 @@ def _inject_source_metadata(document: str, page: Page) -> str:
     if body_start:
         return f"{document[: body_start.end()]}\n{metadata}\n{document[body_start.end():]}"
     return f"{metadata}\n{document}"
+
+
+def _inject_base_href(document: str, base_url: str) -> str:
+    if re.search(r"<base\b", document, flags=re.IGNORECASE):
+        return document
+    base = _escape_html(base_url.rstrip("/") + "/")
+    base_tag = f'<base href="{base}">'
+    head_start = re.search(r"<head\b[^>]*>", document, flags=re.IGNORECASE)
+    if head_start:
+        return f"{document[: head_start.end()]}\n{base_tag}\n{document[head_start.end():]}"
+    return f"{base_tag}\n{document}"
+
+
+def _rewrite_root_relative_urls(document: str, base_url: str) -> str:
+    def replace(match: re.Match[str]) -> str:
+        name = match.group("name")
+        quote = match.group("quote")
+        value = match.group("value")
+        if value.startswith("//"):
+            return match.group(0)
+        rewritten = urljoin(base_url.rstrip("/") + "/", value.lstrip("/"))
+        return f"{name}={quote}{rewritten}{quote}"
+
+    return re.sub(
+        r"(?P<name>\b(?:href|src|action))=(?P<quote>[\"'])(?P<value>/[^\"']*)(?P=quote)",
+        replace,
+        document,
+        flags=re.IGNORECASE,
+    )
 
 
 def _inject_head_style(document: str, css: str) -> str:

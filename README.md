@@ -4,11 +4,11 @@
 
 # Confluence Downloader
 
-Turn Confluence Data Center pages into clean PDF context packs for LLM workflows. The CLI
-can download one page, many named pages, or whole page trees; combine each page tree into
-a single PDF by default; generate bulk download configs from a space tree; and skip
-unchanged pages in bulk and prompted-download flows by comparing Confluence versions with
-the local manifest.
+Turn Confluence Data Center pages into clean PDF context packs for LLM workflows.
+The CLI can download one page, many named pages, or whole page trees; combine each page
+tree into a single PDF by default; optionally write one HTML copy per Confluence page;
+generate bulk download configs from a space tree; and skip unchanged pages in bulk and
+prompted-download flows by comparing Confluence versions with the local manifest.
 
 ## ✨ What It Does
 
@@ -17,6 +17,7 @@ the local manifest.
 | Download one page                                   | `confluence-downloader download --space KEY --title "Page"`          |
 | Download a page and all descendants                 | Add `--include-children`                                      |
 | Get one PDF per page instead of a combined tree PDF | Add `--separate-pages`                                        |
+| Keep an HTML copy close to the Confluence view      | Add `--download-html`                                         |
 | Download pages across multiple spaces               | Use `confluence-downloader bulk --config pages.json`                 |
 | Skip pages already downloaded at the same version   | Use bulk or `--ask-download`, which read `downloaded_pages.md` |
 | Discover pages and build a bulk config              | Use `confluence-downloader list --bulk-config pages.json`            |
@@ -180,7 +181,8 @@ uv run confluence-downloader download \
 | `--combine-children` | `-c`, `-C` | `download`, `bulk`                | On                                            | Write one combined PDF per requested root when children are included              |
 | `--separate-pages`   | `-p`       | `download`, `bulk`                | Off                                           | Write one PDF per page instead of one combined tree PDF                           |
 | `--force`            | `-f`       | `download`, `bulk`, prompted downloads | Off                                      | Regenerate even when an existing PDF or manifest version would normally skip work |
-| `--output-dir`       | `-o`       | `download`, `bulk`, prompted downloads | Current directory                        | Directory where PDFs and `downloaded_pages.md` are written                        |
+| `--download-html`    |            | `download`, `bulk`, prompted downloads | Off                                      | Also write one standalone HTML copy per Confluence page under `html/`             |
+| `--output-dir`       | `-o`       | `download`, `bulk`, prompted downloads | Current directory                        | Directory where PDFs, optional HTML copies, and manifests are written             |
 | `--ask-download`     | `-a`       | `list`, `search`                  | Off                                           | Prompt to download the listed or matched pages after showing results              |
 | `--yes`              | `-y`       | `list`, `search` with `--ask-download` | Off                                      | Auto-confirm prompted downloads                                                   |
 | `--verbosity`        | `-v`       | `download`, `bulk`, prompted downloads | `normal`                                 | Choose `quiet`, `normal`, or `verbose`; prompted downloads use at least `normal`  |
@@ -376,28 +378,33 @@ path.
 .
 ├── architecture-overview-combined-123456.pdf
 ├── adr-index-combined-789012.pdf
+├── downloaded_pages.html
 └── downloaded_pages.md
 ```
 
-Filenames use the slugified page title, then the page ID, to avoid collisions:
+Filenames use the slugified page title, then the page ID, to avoid collisions. If
+`--download-html` is supplied, page HTML copies are written under `html/`:
 
 ```text
 architecture-overview-123456-v7.pdf
+html/architecture-overview-123456-v7.html
 architecture-overview-combined-123456.pdf
 ```
 
-The output directory includes `downloaded_pages.md`, a Markdown table keyed by page ID
-with:
+The output directory includes `downloaded_pages.md`, a Markdown table keyed by page ID,
+and `downloaded_pages.html`, a browser-friendly table with the same rows. The manifest
+tables include:
 
 - page title
 - Confluence URL
 - downloaded version
 - version date
 - local PDF filename
+- local HTML filename, when `--download-html` was used
 
 Rerunning the tool updates existing manifest rows instead of adding duplicates.
 
-## 🛠 PDF Rendering Behavior
+## 🛠 PDF and HTML Rendering Behavior
 
 The tool first tries Confluence Data Center's native FlyingPDF export flow. If Confluence
 returns a login or MFA page instead of PDF bytes, it falls back to rendering the page's
@@ -406,6 +413,12 @@ REST `body.export_view` HTML with WeasyPrint.
 The fallback renderer is designed to preserve headings, tables, inline formatting, and
 images that can be fetched through the configured PAT. Existing `.pdf` files that are
 actually HTML are detected and replaced on the next run.
+
+When `--download-html` is used, the `.html` copy writes Confluence REST
+`body.styled_view` when available, falling back to `body.export_view`. The file includes
+a `<base>` tag for the configured Confluence URL so relative image and attachment links
+resolve as closely as possible to the original page when opened in a browser with access
+to Confluence.
 
 ## 🧪 Development
 

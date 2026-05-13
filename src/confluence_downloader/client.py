@@ -9,7 +9,7 @@ import httpx
 
 from .errors import ConfluenceApiError, ConfluencePdfError, PageLookupError, PdfExportError
 from .models import Page
-from .render import render_combined_html_pdf, render_html_pdf
+from .render import render_combined_html_pdf, render_html_pdf, write_confluence_html
 from .utils import normalize_base_url
 
 
@@ -59,7 +59,7 @@ class ConfluenceClient:
                 "title": title,
                 "status": "current",
                 "limit": 2,
-                "expand": "version",
+                "expand": "version,space",
             },
         )
         results = data.get("results", [])
@@ -196,6 +196,18 @@ class ConfluenceClient:
         if not destination.read_bytes().startswith(b"%PDF-"):
             raise PdfExportError("Combined PDF export did not create a valid PDF.")
 
+    def download_html(self, page: Page, destination: Path) -> None:
+        try:
+            html = self.get_page_styled_view(page.id)
+            write_confluence_html(
+                page=page,
+                html=html,
+                destination=destination,
+                base_url=self.base_url,
+            )
+        except (ConfluencePdfError, OSError, ValueError) as exc:
+            raise PdfExportError(f"HTML export failed for page {page.id}: {exc}") from exc
+
     def download_native_pdf(self, page_id: str, destination: Path) -> None:
         export_url = self._url(f"/spaces/flyingpdf/pdfpageexport.action?pageId={page_id}")
         headers = {"X-Atlassian-Token": "no-check", "Accept": "*/*"}
@@ -234,6 +246,20 @@ class ConfluenceClient:
         )
         body = data.get("body", {})
         for representation in ("export_view", "styled_view"):
+            value = body.get(representation, {}).get("value")
+            if value:
+                return str(value)
+        raise ConfluenceApiError(
+            f"Confluence response for page {page_id} did not include body.styled_view or body.export_view."
+        )
+
+    def get_page_styled_view(self, page_id: str) -> str:
+        data = self._get_json(
+            f"/rest/api/content/{page_id}",
+            params={"expand": "body.styled_view,body.export_view"},
+        )
+        body = data.get("body", {})
+        for representation in ("styled_view", "export_view"):
             value = body.get(representation, {}).get("value")
             if value:
                 return str(value)

@@ -1,8 +1,8 @@
 # Confluence Downloader Skill
 
 This reusable agent skill tells Codex, Claude Code, or another compatible harness how to
-use `confluence-downloader` to fetch missing or changed Confluence pages as local PDFs
-before reviewing them.
+use `confluence-downloader` to fetch missing or changed Confluence pages as local PDFs,
+with optional close-to-original HTML copies, before reviewing them.
 
 ## Install from a Fresh Machine
 
@@ -194,7 +194,9 @@ python skills/confluence-downloader/scripts/ensure_confluence_pdfs.py \
 
 When the skill is active, ask the agent to review Confluence material and provide the page
 space/title or a bulk config. The agent should use existing PDFs when possible, call the
-downloader only for missing or changed pages, then review PDFs and `downloaded_pages.md`
+downloader only for missing or changed pages, then review PDFs plus
+`downloaded_pages.md` or `downloaded_pages.html`. Use `--download-html` when local HTML
+copies are required.
 from the output directory.
 
 ## Example Agent Prompts

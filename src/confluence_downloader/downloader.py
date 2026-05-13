@@ -7,10 +7,18 @@ from pathlib import Path
 
 from .client import ConfluenceClient
 from .errors import PdfExportError
-from .manifest import MANIFEST_FILENAME, ManifestRecord, read_manifest_entries, update_manifest
+from .manifest import (
+    HTML_MANIFEST_FILENAME,
+    MANIFEST_FILENAME,
+    ManifestRecord,
+    read_manifest_entries,
+    update_manifest,
+)
 from .models import Page
 from .render import is_pdf_file
 from .utils import slugify_title
+
+HTML_OUTPUT_DIRNAME = "html"
 
 
 @dataclass
@@ -28,6 +36,7 @@ class DownloadSummary:
     skipped_unchanged: list[Path] = field(default_factory=list)
     failures: list[DownloadFailure] = field(default_factory=list)
     manifest_path: Path | None = None
+    html_manifest_path: Path | None = None
 
     @property
     def failed(self) -> int:
@@ -52,6 +61,7 @@ class PdfDownloader:
         force: bool = False,
         skip_unchanged: bool = False,
         combine_children: bool = False,
+        download_html: bool = False,
     ) -> DownloadSummary:
         summary = DownloadSummary(roots_requested=len(titles))
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -63,6 +73,7 @@ class PdfDownloader:
                 output_dir=output_dir,
                 force=force,
                 skip_unchanged=skip_unchanged,
+                download_html=download_html,
             )
 
         pages = self._collect_pages(space_key, titles, include_children)
@@ -73,6 +84,7 @@ class PdfDownloader:
 
         for index, page in enumerate(pages, start=1):
             destination = output_dir / build_pdf_filename(page)
+            html_destination = build_html_destination(output_dir, page)
             self._log(
                 f"[{index}/{len(pages)}] {page.title} "
                 f"(id={page.id}, version={page.version if page.version is not None else 'unknown'})"
@@ -80,13 +92,31 @@ class PdfDownloader:
             unchanged_destination = find_unchanged_pdf(output_dir, page, manifest_entries)
             if not force and skip_unchanged and unchanged_destination:
                 self._log(f"unchanged; skipping {unchanged_destination.name}")
+                html_path = self._optional_html_copy(
+                    page,
+                    html_destination,
+                    force=force,
+                    summary=summary,
+                    download_html=download_html,
+                )
                 summary.skipped_unchanged.append(unchanged_destination)
-                manifest_records.append(ManifestRecord(page=page, pdf_path=unchanged_destination))
+                manifest_records.append(
+                    ManifestRecord(page=page, pdf_path=unchanged_destination, html_path=html_path)
+                )
                 continue
             if not force and destination.exists() and is_pdf_file(destination):
                 self._log(f"existing valid PDF; skipping {destination.name}")
+                html_path = self._optional_html_copy(
+                    page,
+                    html_destination,
+                    force=force,
+                    summary=summary,
+                    download_html=download_html,
+                )
                 summary.skipped.append(destination)
-                manifest_records.append(ManifestRecord(page=page, pdf_path=destination))
+                manifest_records.append(
+                    ManifestRecord(page=page, pdf_path=destination, html_path=html_path)
+                )
                 continue
             try:
                 self._log(f"downloading -> {destination.name}")
@@ -95,12 +125,20 @@ class PdfDownloader:
                 self._log(f"failed: {exc}")
                 summary.failures.append(DownloadFailure(page=page, error=str(exc)))
                 continue
+            html_path = self._optional_html_copy(
+                page,
+                html_destination,
+                force=force,
+                summary=summary,
+                download_html=download_html,
+            )
             self._log("done")
             summary.exported.append(destination)
-            manifest_records.append(ManifestRecord(page=page, pdf_path=destination))
+            manifest_records.append(ManifestRecord(page=page, pdf_path=destination, html_path=html_path))
 
         if manifest_records:
             summary.manifest_path = manifest_path
+            summary.html_manifest_path = manifest_path.with_name(HTML_MANIFEST_FILENAME)
             update_manifest(summary.manifest_path, manifest_records)
 
         return summary
@@ -113,6 +151,7 @@ class PdfDownloader:
         output_dir: Path,
         force: bool,
         skip_unchanged: bool,
+        download_html: bool,
     ) -> DownloadSummary:
         summary = DownloadSummary(roots_requested=len(titles))
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -132,16 +171,45 @@ class PdfDownloader:
             seen_ids.update(page.id for page in unique_page_group)
             summary.pages_found += len(unique_page_group)
             destination = output_dir / build_combined_pdf_filename(root)
+            html_destinations = {
+                page.id: build_html_destination(output_dir, page) for page in unique_page_group
+            }
 
             if not force and all_pages_unchanged(output_dir, unique_page_group, manifest_entries):
                 self._log(f"combined subtree unchanged; skipping {destination.name}")
+                html_paths = {
+                    page.id: self._optional_html_copy(
+                        page,
+                        html_destinations[page.id],
+                        force=force,
+                        summary=summary,
+                        download_html=download_html,
+                    )
+                    for page in unique_page_group
+                }
                 summary.skipped_unchanged.append(destination)
-                manifest_records.extend(ManifestRecord(page=page, pdf_path=destination) for page in unique_page_group)
+                manifest_records.extend(
+                    ManifestRecord(page=page, pdf_path=destination, html_path=html_paths[page.id])
+                    for page in unique_page_group
+                )
                 continue
             if not force and destination.exists() and is_pdf_file(destination):
                 self._log(f"existing valid combined PDF; skipping {destination.name}")
+                html_paths = {
+                    page.id: self._optional_html_copy(
+                        page,
+                        html_destinations[page.id],
+                        force=force,
+                        summary=summary,
+                        download_html=download_html,
+                    )
+                    for page in unique_page_group
+                }
                 summary.skipped.append(destination)
-                manifest_records.extend(ManifestRecord(page=page, pdf_path=destination) for page in unique_page_group)
+                manifest_records.extend(
+                    ManifestRecord(page=page, pdf_path=destination, html_path=html_paths[page.id])
+                    for page in unique_page_group
+                )
                 continue
 
             try:
@@ -151,12 +219,26 @@ class PdfDownloader:
                 self._log(f"failed: {exc}")
                 summary.failures.append(DownloadFailure(page=root, error=str(exc)))
                 continue
+            html_paths = {
+                page.id: self._optional_html_copy(
+                    page,
+                    html_destinations[page.id],
+                    force=force,
+                    summary=summary,
+                    download_html=download_html,
+                )
+                for page in unique_page_group
+            }
             self._log("done")
             summary.exported.append(destination)
-            manifest_records.extend(ManifestRecord(page=page, pdf_path=destination) for page in unique_page_group)
+            manifest_records.extend(
+                ManifestRecord(page=page, pdf_path=destination, html_path=html_paths[page.id])
+                for page in unique_page_group
+            )
 
         if manifest_records:
             summary.manifest_path = manifest_path
+            summary.html_manifest_path = manifest_path.with_name(HTML_MANIFEST_FILENAME)
             update_manifest(summary.manifest_path, manifest_records)
 
         return summary
@@ -207,10 +289,58 @@ class PdfDownloader:
         if self.logger:
             self.logger(level, message)
 
+    def _ensure_html_copy(
+        self,
+        page: Page,
+        destination: Path,
+        *,
+        force: bool,
+        summary: DownloadSummary,
+    ) -> Path | None:
+        if not force and destination.exists():
+            self._log(f"existing HTML; skipping {destination.name}", level="verbose")
+            return destination
+        try:
+            self._log(f"writing HTML -> {destination.name}", level="verbose")
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            self.client.download_html(page, destination)
+        except PdfExportError as exc:
+            self._log(f"HTML failed: {exc}")
+            summary.failures.append(DownloadFailure(page=page, error=str(exc)))
+            return None
+        return destination
+
+    def _optional_html_copy(
+        self,
+        page: Page,
+        destination: Path,
+        *,
+        force: bool,
+        summary: DownloadSummary,
+        download_html: bool,
+    ) -> Path | None:
+        if not download_html:
+            return None
+        return self._ensure_html_copy(
+            page,
+            destination,
+            force=force,
+            summary=summary,
+        )
+
 
 def build_pdf_filename(page: Page) -> str:
     version = "" if page.version is None else f"-v{page.version}"
     return f"{slugify_title(page.title)}-{page.id}{version}.pdf"
+
+
+def build_html_filename(page: Page) -> str:
+    version = "" if page.version is None else f"-v{page.version}"
+    return f"{slugify_title(page.title)}-{page.id}{version}.html"
+
+
+def build_html_destination(output_dir: Path, page: Page) -> Path:
+    return output_dir / HTML_OUTPUT_DIRNAME / build_html_filename(page)
 
 
 def build_combined_pdf_filename(page: Page) -> str:

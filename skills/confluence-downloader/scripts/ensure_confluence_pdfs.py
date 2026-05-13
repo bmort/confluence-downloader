@@ -21,6 +21,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--titles-file", type=Path, help="newline-delimited titles file")
     parser.add_argument("--include-children", action="store_true", help="include descendant pages for direct download")
     parser.add_argument("--separate-pages", action="store_true", help="write one PDF per page instead of combined child PDFs")
+    parser.add_argument("--download-html", action="store_true", help="also write one HTML copy per Confluence page")
     parser.add_argument("--force", action="store_true", help="regenerate even when files or manifest entries allow skipping")
     parser.add_argument("--dry-run", action="store_true", help="print the downloader command without running it")
     parser.add_argument("--verbosity", default="normal", choices=("quiet", "normal", "verbose"), help="CLI verbosity")
@@ -70,6 +71,8 @@ def main() -> int:
 
     if args.force:
         command.append("--force")
+    if args.download_html:
+        command.append("--download-html")
     if args.request_delay is not None:
         command.extend(["--request-delay", str(args.request_delay)])
     if args.retry_backoff is not None:
@@ -86,12 +89,10 @@ def main() -> int:
         return completed.returncode
 
     output_dir = args.output_dir if args.output_dir.is_absolute() else args.repo / args.output_dir
-    print(f"PDF output directory: {output_dir}")
-    manifests = sorted(output_dir.glob("*/downloaded_pages.md"))
-    if manifests:
-        print("Manifest files:")
-        for manifest in manifests:
-            print(f"- {manifest}")
+    print(f"Output directory: {output_dir}")
+    manifest = output_dir / "downloaded_pages.md"
+    if manifest.exists():
+        print(f"Manifest file: {manifest}")
     return 0
 
 

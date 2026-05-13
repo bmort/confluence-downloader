@@ -216,6 +216,7 @@ def test_cli_search_can_prompt_to_download_matches(monkeypatch, tmp_path: Path) 
             "force": True,
             "skip_unchanged": True,
             "combine_children": True,
+            "download_html": False,
         }
     ]
     assert len(FakeDownloader.init_kwargs) == 1
@@ -278,6 +279,7 @@ def test_cli_search_can_auto_confirm_prompted_download(monkeypatch, tmp_path: Pa
             "force": False,
             "skip_unchanged": True,
             "combine_children": True,
+            "download_html": False,
         }
     ]
 
@@ -432,11 +434,37 @@ def test_cli_uses_env_config_and_repeated_titles(monkeypatch, tmp_path: Path) ->
         "include_children": True,
         "force": True,
         "combine_children": True,
+        "download_html": False,
     }
     assert "Pages found: 2" in result.output
     assert "📊 Group Summary" in result.output
     assert "┌─" in result.output
     assert "└" in result.output
+
+
+def test_cli_download_can_request_html_pages(monkeypatch, tmp_path: Path) -> None:
+    FakeDownloader.calls = []
+    monkeypatch.setenv("CONFLUENCE_BASE_URL", "https://confluence.example.test/confluence/")
+    monkeypatch.setenv("CONFLUENCE_PAT", "env-token")
+    monkeypatch.setattr(cli, "ConfluenceClient", FakeConfluenceClient)
+    monkeypatch.setattr(cli, "PdfDownloader", FakeDownloader)
+
+    result = runner.invoke(
+        app,
+        [
+            "download",
+            "--space",
+            "DOC",
+            "--title",
+            "Root",
+            "--download-html",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert FakeDownloader.last_call["download_html"] is True
 
 
 def test_cli_option_config_beats_env(monkeypatch, tmp_path: Path) -> None:
@@ -530,6 +558,7 @@ def test_cli_download_accepts_short_option_aliases(monkeypatch, tmp_path: Path) 
         "include_children": True,
         "force": True,
         "combine_children": False,
+        "download_html": False,
     }
     assert FakeConfluenceClient.last_kwargs == {
         "request_delay": 0.25,
@@ -583,6 +612,7 @@ def test_cli_bulk_uses_config_and_skips_unchanged(monkeypatch, tmp_path: Path) -
             "force": False,
             "skip_unchanged": True,
             "combine_children": True,
+            "download_html": False,
         },
         {
             "space_key": "DOC",
@@ -592,6 +622,7 @@ def test_cli_bulk_uses_config_and_skips_unchanged(monkeypatch, tmp_path: Path) -
             "force": False,
             "skip_unchanged": True,
             "combine_children": True,
+            "download_html": False,
         },
     ]
 
@@ -628,6 +659,7 @@ def test_cli_bulk_uses_config_output_dir_when_option_is_omitted(monkeypatch, tmp
             "force": False,
             "skip_unchanged": True,
             "combine_children": True,
+            "download_html": False,
         }
     ]
 
@@ -701,6 +733,7 @@ def test_cli_bulk_can_group_by_space(monkeypatch, tmp_path: Path) -> None:
             "force": False,
             "skip_unchanged": True,
             "combine_children": True,
+            "download_html": False,
         }
     ]
 
@@ -751,6 +784,7 @@ def test_cli_bulk_accepts_short_option_aliases(monkeypatch, tmp_path: Path) -> N
             "force": True,
             "skip_unchanged": True,
             "combine_children": False,
+            "download_html": False,
         }
     ]
 
@@ -874,6 +908,7 @@ def test_cli_list_space_prompted_bulk_config_uses_downloaded_listed_pages(monkey
             "force": False,
             "skip_unchanged": True,
             "combine_children": True,
+            "download_html": False,
         }
     ]
 
@@ -953,6 +988,7 @@ def test_cli_list_space_can_prompt_to_download_listed_pages(monkeypatch, tmp_pat
             "force": False,
             "skip_unchanged": True,
             "combine_children": True,
+            "download_html": False,
         }
     ]
     assert len(FakeDownloader.init_kwargs) == 1
@@ -999,6 +1035,7 @@ def test_cli_list_space_can_auto_confirm_prompted_download(monkeypatch, tmp_path
             "force": False,
             "skip_unchanged": True,
             "combine_children": True,
+            "download_html": False,
         }
     ]
 

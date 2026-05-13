@@ -1,12 +1,18 @@
 from pathlib import Path
 
-from confluence_downloader.downloader import PdfDownloader, build_pdf_filename
+from confluence_downloader.downloader import (
+    PdfDownloader,
+    build_html_destination,
+    build_html_filename,
+    build_pdf_filename,
+)
 from confluence_downloader.models import Page
 
 
 class FakeClient:
     def __init__(self) -> None:
         self.downloaded: list[tuple[str, Path]] = []
+        self.downloaded_html: list[tuple[str, Path]] = []
 
     def resolve_page_by_title(self, space_key: str, title: str) -> Page:
         return Page(id={"Root": "1", "Other": "2"}[title], title=title, version=5)
@@ -37,6 +43,10 @@ class FakeClient:
         self.downloaded.append(("+".join(page.id for page in pages), destination))
         destination.write_bytes(b"%PDF- combined")
 
+    def download_html(self, page: Page, destination: Path) -> None:
+        self.downloaded_html.append((page.id, destination))
+        destination.write_text(f"<html><body>{page.title}</body></html>", encoding="utf-8")
+
 
 def test_build_pdf_filename_places_version_after_id() -> None:
     assert build_pdf_filename(Page(id="123", title="My Page", version=7)) == "my-page-123-v7.pdf"
@@ -44,6 +54,16 @@ def test_build_pdf_filename_places_version_after_id() -> None:
 
 def test_build_pdf_filename_omits_unknown_version() -> None:
     assert build_pdf_filename(Page(id="123", title="My Page")) == "my-page-123.pdf"
+
+
+def test_build_html_filename_matches_pdf_stem() -> None:
+    assert build_html_filename(Page(id="123", title="My Page", version=7)) == "my-page-123-v7.html"
+
+
+def test_build_html_destination_uses_html_subdirectory(tmp_path: Path) -> None:
+    assert build_html_destination(tmp_path, Page(id="123", title="My Page", version=7)) == (
+        tmp_path / "html" / "my-page-123-v7.html"
+    )
 
 
 def test_downloader_downloads_roots_and_descendants(tmp_path: Path) -> None:
@@ -61,8 +81,12 @@ def test_downloader_downloads_roots_and_descendants(tmp_path: Path) -> None:
     assert summary.pages_found == 3
     assert len(summary.exported) == 3
     assert [page_id for page_id, _ in fake_client.downloaded] == ["1", "3", "4"]
+    assert fake_client.downloaded_html == []
+    assert not (tmp_path / "html" / "root-1-v5.html").exists()
     assert summary.manifest_path == tmp_path / "downloaded_pages.md"
+    assert summary.html_manifest_path == tmp_path / "downloaded_pages.html"
     assert "Root" in summary.manifest_path.read_text(encoding="utf-8")
+    assert "Root" in summary.html_manifest_path.read_text(encoding="utf-8")
     messages = [message for _, message in logs]
     assert "Resolving root 1/1: Root" in messages
     assert "found 2 descendants" in messages
@@ -88,7 +112,9 @@ def test_downloader_skips_existing_files(tmp_path: Path) -> None:
     assert summary.skipped == [existing]
     assert summary.exported == []
     assert fake_client.downloaded == []
+    assert fake_client.downloaded_html == []
     assert summary.manifest_path == tmp_path / "downloaded_pages.md"
+    assert summary.html_manifest_path == tmp_path / "downloaded_pages.html"
 
 
 def test_downloader_replaces_existing_non_pdf_file(tmp_path: Path) -> None:
@@ -152,6 +178,7 @@ def test_downloader_bulk_skips_unchanged_manifest_version(tmp_path: Path) -> Non
     assert summary.skipped_unchanged == [existing]
     assert summary.exported == []
     assert fake_client.downloaded == []
+    assert fake_client.downloaded_html == []
 
 
 def test_downloader_skips_unchanged_version_from_filename_without_manifest(tmp_path: Path) -> None:
@@ -191,6 +218,7 @@ def test_downloader_downloads_changed_version_despite_existing_old_pdf(tmp_path:
     assert summary.exported == [new_pdf]
     assert summary.skipped == []
     assert fake_client.downloaded == [("1", new_pdf)]
+    assert fake_client.downloaded_html == []
 
 
 def test_downloader_can_combine_children_into_single_pdf(tmp_path: Path) -> None:
@@ -209,5 +237,45 @@ def test_downloader_can_combine_children_into_single_pdf(tmp_path: Path) -> None
     assert summary.pages_found == 3
     assert summary.exported == [output]
     assert fake_client.downloaded == [("1+3+4", output)]
+    assert fake_client.downloaded_html == []
     manifest = (tmp_path / "downloaded_pages.md").read_text(encoding="utf-8")
     assert "root-combined-1.pdf" in manifest
+    assert "html/root-1-v5.html" not in manifest
+
+
+def test_downloader_can_optionally_download_html_pages(tmp_path: Path) -> None:
+    fake_client = FakeClient()
+    downloader = PdfDownloader(fake_client)  # type: ignore[arg-type]
+
+    summary = downloader.download(
+        space_key="DOC",
+        titles=["Root"],
+        output_dir=tmp_path,
+        include_children=True,
+        download_html=True,
+    )
+
+    assert summary.pages_found == 3
+    assert [page_id for page_id, _ in fake_client.downloaded_html] == ["1", "3", "4"]
+    assert (tmp_path / "html" / "root-1-v5.html").exists()
+    manifest = (tmp_path / "downloaded_pages.md").read_text(encoding="utf-8")
+    assert "html/root-1-v5.html" in manifest
+
+
+def test_downloader_can_optionally_download_combined_root_html_pages(tmp_path: Path) -> None:
+    fake_client = FakeClient()
+    downloader = PdfDownloader(fake_client)  # type: ignore[arg-type]
+
+    summary = downloader.download(
+        space_key="DOC",
+        titles=["Root"],
+        output_dir=tmp_path,
+        include_children=True,
+        combine_children=True,
+        download_html=True,
+    )
+
+    assert summary.exported == [tmp_path / "root-combined-1.pdf"]
+    assert [page_id for page_id, _ in fake_client.downloaded_html] == ["1", "3", "4"]
+    manifest = (tmp_path / "downloaded_pages.md").read_text(encoding="utf-8")
+    assert "html/root-1-v5.html" in manifest
