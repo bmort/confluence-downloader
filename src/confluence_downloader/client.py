@@ -7,7 +7,13 @@ from urllib.parse import urljoin
 
 import httpx
 
-from .errors import ConfluenceApiError, ConfluencePdfError, PageLookupError, PdfExportError
+from .errors import (
+    AuthenticationError,
+    ConfluenceApiError,
+    ConfluencePdfError,
+    PageLookupError,
+    PdfExportError,
+)
 from .models import Page
 from .render import render_combined_html_pdf, render_html_pdf, write_confluence_html
 from .utils import normalize_base_url
@@ -49,6 +55,16 @@ class ConfluenceClient:
 
     def __exit__(self, *exc_info: object) -> None:
         self.close()
+
+    def verify_authentication(self) -> None:
+        # Confluence silently serves anonymous access for invalid or expired
+        # tokens instead of returning 401, so check who the server thinks we are.
+        data = self._get_json("/rest/api/user/current", params={})
+        if data.get("type") == "anonymous":
+            raise AuthenticationError(
+                "Your token is invalid or expired - Confluence is treating requests as anonymous. "
+                "Generate a new Personal Access Token and update CONFLUENCE_PAT."
+            )
 
     def resolve_page_by_title(self, space_key: str, title: str) -> Page:
         data = self._get_json(

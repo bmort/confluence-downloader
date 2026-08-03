@@ -93,6 +93,9 @@ class FakeConfluenceClient:
     def __exit__(self, *exc_info: object) -> None:
         return None
 
+    def verify_authentication(self) -> None:
+        return None
+
     def search_pages_by_title(self, query: str, *, space_key: str | None = None, limit: int = 10) -> list[Page]:
         FakeConfluenceClient.search_calls.append(
             {"query": query, "space_key": space_key, "limit": limit}

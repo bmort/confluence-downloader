@@ -13,6 +13,10 @@ class ConfluenceApiError(ConfluencePdfError):
     """Raised when Confluence returns an unsuccessful response."""
 
 
+class AuthenticationError(ConfluencePdfError):
+    """Raised when Confluence does not recognise the supplied token."""
+
+
 class PageLookupError(ConfluencePdfError):
     """Raised when a requested page title cannot be resolved exactly once."""
 

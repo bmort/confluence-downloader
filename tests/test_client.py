@@ -6,7 +6,12 @@ import httpx
 import pytest
 
 from confluence_downloader.client import ConfluenceClient
-from confluence_downloader.errors import ConfluenceApiError, PageLookupError, PdfExportError
+from confluence_downloader.errors import (
+    AuthenticationError,
+    ConfluenceApiError,
+    PageLookupError,
+    PdfExportError,
+)
 from confluence_downloader.models import Page
 
 
@@ -16,6 +21,24 @@ def make_client(handler) -> ConfluenceClient:
         "pat-token",
         transport=httpx.MockTransport(handler),
     )
+
+
+def test_verify_authentication_accepts_known_user() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/confluence/rest/api/user/current"
+        return httpx.Response(200, json={"type": "known", "username": "b.mort"})
+
+    with make_client(handler) as client:
+        client.verify_authentication()
+
+
+def test_verify_authentication_rejects_anonymous() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"type": "anonymous", "displayName": "Anonymous"})
+
+    with make_client(handler) as client:
+        with pytest.raises(AuthenticationError, match="token is invalid"):
+            client.verify_authentication()
 
 
 def test_resolve_page_by_title_success() -> None:

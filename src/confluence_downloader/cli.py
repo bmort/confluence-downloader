@@ -191,6 +191,7 @@ def download(
             retry_backoff=retry_backoff,
             max_retries=max_retries,
         ) as client:
+            client.verify_authentication()
             downloader = PdfDownloader(client, logger=logger)
             summary = downloader.download(
                 space_key=space,
@@ -364,6 +365,7 @@ def bulk(
             retry_backoff=retry_backoff,
             max_retries=max_retries,
         ) as client:
+            client.verify_authentication()
             downloader = PdfDownloader(client, logger=logger)
             for group_index, group in enumerate(groups, start=1):
                 _log(
@@ -567,6 +569,7 @@ def list_space(
             retry_backoff=retry_backoff,
             max_retries=max_retries,
         ) as client:
+            client.verify_authentication()
             tree_pages = list_space_tree(
                 client,
                 space_key=space,
@@ -778,6 +781,7 @@ def search(
             retry_backoff=retry_backoff,
             max_retries=max_retries,
         ) as client:
+            client.verify_authentication()
             pages = client.search_pages_by_title(query, space_key=space, limit=limit)
 
             if not pages:
