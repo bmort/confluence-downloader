@@ -206,6 +206,7 @@ name = "confluence-downloader"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "click" },
     { name = "httpx" },
     { name = "typer" },
     { name = "weasyprint" },
@@ -218,8 +219,9 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "click", specifier = ">=8,<9" },
     { name = "httpx", specifier = ">=0.27,<1" },
-    { name = "typer", specifier = ">=0.12,<1" },
+    { name = "typer", specifier = ">=0.12,<0.26" },
     { name = "weasyprint", specifier = ">=66,<67" },
 ]
 
