@@ -93,6 +93,17 @@ class ConfluenceTui(App):
         text-style: bold;
         margin-bottom: 1;
     }
+    /* Default toggles carry a 3-row tall border; compact them so the
+       dialog still fits a 24-row terminal. */
+    #confirm-box Checkbox {
+        border: none;
+        height: 1;
+        padding: 0 1;
+    }
+    #confirm-box Checkbox:focus {
+        background: $boost;
+        text-style: bold;
+    }
     #count {
         margin-top: 1;
     }

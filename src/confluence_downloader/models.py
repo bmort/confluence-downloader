@@ -11,6 +11,16 @@ class Space:
 
 
 @dataclass(frozen=True)
+class Attachment:
+    id: str
+    title: str
+    media_type: str = ""
+    file_size: int | None = None
+    version: int | None = None
+    download_path: str = ""
+
+
+@dataclass(frozen=True)
 class Page:
     id: str
     title: str

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from html import escape
 from pathlib import Path
 
@@ -8,8 +8,8 @@ from .models import Page
 
 MANIFEST_FILENAME = "downloaded_pages.md"
 HTML_MANIFEST_FILENAME = "downloaded_pages.html"
-HEADER = "| Page ID | Title | URL | Version | Version Date | PDF | HTML |\n"
-SEPARATOR = "| --- | --- | --- | --- | --- | --- | --- |\n"
+HEADER = "| Page ID | Title | URL | Version | Version Date | PDF | HTML | Attachments |\n"
+SEPARATOR = "| --- | --- | --- | --- | --- | --- | --- | --- |\n"
 HTML_COLUMN_LABELS = ("Title", "Version", "Version Date", "Page ID", "Space")
 HTML_STYLE = """
 :root {
@@ -102,6 +102,7 @@ class ManifestRecord:
     page: Page
     pdf_path: Path
     html_path: Path | None = None
+    attachments: tuple[tuple[str, int | None], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -110,6 +111,7 @@ class ManifestEntry:
     version: int | None
     pdf_name: str
     html_name: str = ""
+    attachment_versions: dict[str, int] = field(default_factory=dict)
 
 
 def update_manifest(manifest_path: Path, records: list[ManifestRecord]) -> None:
@@ -138,8 +140,27 @@ def read_manifest_entries(manifest_path: Path) -> dict[str, ManifestEntry]:
             version=_parse_version(columns[3]),
             pdf_name=_unescape_markdown(columns[5]),
             html_name=_unescape_markdown(columns[6]) if len(columns) > 6 else "",
+            attachment_versions=_parse_attachments(
+                _unescape_markdown(columns[7]) if len(columns) > 7 else ""
+            ),
         )
     return entries
+
+
+def _parse_attachments(value: str) -> dict[str, int]:
+    versions: dict[str, int] = {}
+    for item in value.split("; "):
+        name, separator, version = item.rpartition("@v")
+        if separator and version.isdigit():
+            versions[name] = int(version)
+    return versions
+
+
+def _format_attachments(attachments: tuple[tuple[str, int | None], ...]) -> str:
+    return "; ".join(
+        name if version is None else f"{name}@v{version}"
+        for name, version in attachments
+    )
 
 
 def _read_existing_records(manifest_path: Path) -> dict[str, list[str]]:
@@ -216,6 +237,7 @@ def _record_to_columns(record: ManifestRecord) -> list[str]:
         page.version_when,
         pdf_name,
         html_name,
+        _format_attachments(record.attachments),
         page.space,
     ]
 
@@ -233,9 +255,8 @@ def _markdown_columns_to_values(columns: list[str]) -> list[str]:
     values = [_unescape_markdown(column) for column in columns]
     if len(values) >= 3:
         values[2] = _unwrap_markdown_link(values[2])
-    if len(values) == 6:
-        values.append("")
-    if len(values) == 7:
+    # Pad older manifests up to [.., pdf, html, attachments, space].
+    while len(values) < 9:
         values.append("")
     return values
 
@@ -250,7 +271,7 @@ def _unwrap_markdown_link(value: str) -> str:
 
 
 def _columns_to_markdown_row(columns: list[str]) -> str:
-    page_id, title, url, version, version_when, pdf_name, html_name, *_space = columns
+    page_id, title, url, version, version_when, pdf_name, html_name, attachments, *_space = columns
     return (
         f"| {_escape_markdown(page_id)} "
         f"| {_escape_markdown(title)} "
@@ -258,7 +279,8 @@ def _columns_to_markdown_row(columns: list[str]) -> str:
         f"| {_escape_markdown(version)} "
         f"| {_escape_markdown(version_when)} "
         f"| {_escape_markdown(pdf_name)} "
-        f"| {_escape_markdown(html_name)} |\n"
+        f"| {_escape_markdown(html_name)} "
+        f"| {_escape_markdown(attachments)} |\n"
     )
 
 
@@ -294,7 +316,7 @@ def _records_to_html_table(rows: list[list[str]]) -> str:
 
 
 def _columns_to_html_row(columns: list[str]) -> str:
-    page_id, title, url, version, version_when, _pdf_name, _html_name, space = columns
+    page_id, title, url, version, version_when, _pdf_name, _html_name, _attachments, space = columns
     title_cell = escape(title)
     if url:
         escaped_url = escape(url, quote=True)

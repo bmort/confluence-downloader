@@ -17,6 +17,7 @@ class DownloadPlan:
     include_children: bool = False
     combine_children: bool = False
     download_html: bool = False
+    download_attachments: bool = False
     force: bool = False
     fallback_space: str | None = None
 
@@ -83,6 +84,7 @@ def execute_plan(
                 skip_unchanged=True,
                 combine_children=plan.combine_children,
                 download_html=plan.download_html,
+                download_attachments=plan.download_attachments,
             )
         except ConfluencePdfError as exc:
             result.errors.append(str(exc))

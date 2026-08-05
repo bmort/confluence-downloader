@@ -21,20 +21,22 @@ def test_update_manifest_writes_download_metadata(tmp_path: Path) -> None:
                 ),
                 pdf_path=tmp_path / "root-123.pdf",
                 html_path=tmp_path / "html" / "root-123.html",
+                attachments=(("notes.txt", 3), ("chart.png", None)),
             )
         ],
     )
 
     assert manifest.read_text(encoding="utf-8") == (
-        "| Page ID | Title | URL | Version | Version Date | PDF | HTML |\n"
-        "| --- | --- | --- | --- | --- | --- | --- |\n"
-        "| 123 | Root \\| Page | [https://confluence.example.test/display/DOC/Root](https://confluence.example.test/display/DOC/Root) | 7 | 2026-05-01T08:30:00.000Z | root-123.pdf | html/root-123.html |\n"
+        "| Page ID | Title | URL | Version | Version Date | PDF | HTML | Attachments |\n"
+        "| --- | --- | --- | --- | --- | --- | --- | --- |\n"
+        "| 123 | Root \\| Page | [https://confluence.example.test/display/DOC/Root](https://confluence.example.test/display/DOC/Root) | 7 | 2026-05-01T08:30:00.000Z | root-123.pdf | html/root-123.html | notes.txt@v3; chart.png |\n"
     )
 
     entries = read_manifest_entries(manifest)
     assert entries["123"].version == 7
     assert entries["123"].pdf_name == "root-123.pdf"
     assert entries["123"].html_name == "html/root-123.html"
+    assert entries["123"].attachment_versions == {"notes.txt": 3}
 
     html = html_manifest.read_text(encoding="utf-8")
     assert "<title>Downloaded Pages</title>" in html

@@ -270,6 +270,7 @@ def test_cli_search_can_prompt_to_download_matches(monkeypatch, tmp_path: Path) 
             "skip_unchanged": True,
             "combine_children": True,
             "download_html": False,
+            "download_attachments": False,
         }
     ]
     assert len(FakeDownloader.init_kwargs) == 1
@@ -333,6 +334,7 @@ def test_cli_search_can_auto_confirm_prompted_download(monkeypatch, tmp_path: Pa
             "skip_unchanged": True,
             "combine_children": True,
             "download_html": False,
+            "download_attachments": False,
         }
     ]
 
@@ -488,6 +490,7 @@ def test_cli_uses_env_config_and_repeated_titles(monkeypatch, tmp_path: Path) ->
         "force": True,
         "combine_children": True,
         "download_html": False,
+        "download_attachments": False,
     }
     assert "Pages found: 2" in result.output
     assert "📊 Group Summary" in result.output
@@ -612,6 +615,7 @@ def test_cli_download_accepts_short_option_aliases(monkeypatch, tmp_path: Path) 
         "force": True,
         "combine_children": False,
         "download_html": False,
+        "download_attachments": False,
     }
     assert FakeConfluenceClient.last_kwargs == {
         "request_delay": 0.25,
@@ -666,6 +670,7 @@ def test_cli_bulk_uses_config_and_skips_unchanged(monkeypatch, tmp_path: Path) -
             "skip_unchanged": True,
             "combine_children": True,
             "download_html": False,
+            "download_attachments": False,
         },
         {
             "space_key": "DOC",
@@ -676,6 +681,7 @@ def test_cli_bulk_uses_config_and_skips_unchanged(monkeypatch, tmp_path: Path) -
             "skip_unchanged": True,
             "combine_children": True,
             "download_html": False,
+            "download_attachments": False,
         },
     ]
 
@@ -713,6 +719,7 @@ def test_cli_bulk_uses_config_output_dir_when_option_is_omitted(monkeypatch, tmp
             "skip_unchanged": True,
             "combine_children": True,
             "download_html": False,
+            "download_attachments": False,
         }
     ]
 
@@ -787,6 +794,7 @@ def test_cli_bulk_can_group_by_space(monkeypatch, tmp_path: Path) -> None:
             "skip_unchanged": True,
             "combine_children": True,
             "download_html": False,
+            "download_attachments": False,
         }
     ]
 
@@ -838,6 +846,7 @@ def test_cli_bulk_accepts_short_option_aliases(monkeypatch, tmp_path: Path) -> N
             "skip_unchanged": True,
             "combine_children": False,
             "download_html": False,
+            "download_attachments": False,
         }
     ]
 
@@ -962,6 +971,7 @@ def test_cli_list_space_prompted_bulk_config_uses_downloaded_listed_pages(monkey
             "skip_unchanged": True,
             "combine_children": True,
             "download_html": False,
+            "download_attachments": False,
         }
     ]
 
@@ -1042,6 +1052,7 @@ def test_cli_list_space_can_prompt_to_download_listed_pages(monkeypatch, tmp_pat
             "skip_unchanged": True,
             "combine_children": True,
             "download_html": False,
+            "download_attachments": False,
         }
     ]
     assert len(FakeDownloader.init_kwargs) == 1
@@ -1089,6 +1100,7 @@ def test_cli_list_space_can_auto_confirm_prompted_download(monkeypatch, tmp_path
             "skip_unchanged": True,
             "combine_children": True,
             "download_html": False,
+            "download_attachments": False,
         }
     ]
 

@@ -3,18 +3,19 @@ from __future__ import annotations
 from pathlib import Path
 import time
 from typing import Any
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlsplit
 
 import httpx
 
 from .errors import (
+    AttachmentDownloadError,
     AuthenticationError,
     ConfluenceApiError,
     ConfluencePdfError,
     PageLookupError,
     PdfExportError,
 )
-from .models import Page, Space
+from .models import Attachment, Page, Space
 from .render import render_combined_html_pdf, render_html_pdf, write_confluence_html
 from .utils import normalize_base_url
 
@@ -201,28 +202,93 @@ class ConfluenceClient:
 
         return pages
 
+    def list_attachments(self, page_id: str, *, page_size: int = 50) -> list[Attachment]:
+        attachments: list[Attachment] = []
+        start = 0
+
+        while True:
+            data = self._get_json(
+                f"/rest/api/content/{page_id}/child/attachment",
+                params={"start": start, "limit": page_size, "expand": "version"},
+            )
+            results = data.get("results", [])
+            for result in results:
+                attachments.append(self._attachment_from_result(result))
+
+            size = int(data.get("size", len(results)))
+            limit = int(data.get("limit", page_size))
+            if size == 0 or size < limit:
+                break
+            start += size
+
+        return attachments
+
+    def download_attachment(self, attachment: Attachment, destination: Path) -> None:
+        if not attachment.download_path:
+            raise AttachmentDownloadError(
+                f'Attachment "{attachment.title}" has no download link.'
+            )
+        download_url = urljoin(self.base_url + "/", attachment.download_path.lstrip("/"))
+        try:
+            response = self._request("GET", download_url, headers={"Accept": "*/*"})
+            if response.status_code >= 400:
+                raise AttachmentDownloadError(
+                    f'Attachment "{attachment.title}" failed with HTTP {response.status_code}.'
+                )
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            temporary_destination = destination.with_suffix(destination.suffix + ".tmp")
+            with temporary_destination.open("wb") as handle:
+                for chunk in response.iter_bytes():
+                    handle.write(chunk)
+            response.close()
+            temporary_destination.replace(destination)
+        except httpx.HTTPError as exc:
+            raise AttachmentDownloadError(
+                f'Could not download attachment "{attachment.title}": {exc}'
+            ) from exc
+
+    def _attachment_from_result(self, result: dict[str, Any]) -> Attachment:
+        extensions = result.get("extensions", {})
+        version = result.get("version", {})
+        version_number = version.get("number")
+        if not isinstance(version_number, int):
+            version_number = None
+        file_size = extensions.get("fileSize")
+        if not isinstance(file_size, int):
+            file_size = None
+        return Attachment(
+            id=str(result["id"]),
+            title=str(result.get("title", "")),
+            media_type=str(extensions.get("mediaType", "")),
+            file_size=file_size,
+            version=version_number,
+            download_path=str(result.get("_links", {}).get("download", "")),
+        )
+
     def download_pdf(self, page: Page, destination: Path) -> None:
+        # Render locally first: it produces consistent, wide-table-aware output,
+        # while the native FlyingPDF action often needs a browser session.
+        try:
+            html = self.get_page_export_view(page.id)
+            render_html_pdf(
+                page=page,
+                html=html,
+                destination=destination,
+                base_url=self.base_url,
+                url_fetcher=self._fetch_render_asset,
+            )
+            if destination.read_bytes().startswith(b"%PDF-"):
+                return
+            rendered_error: Exception | None = None
+        except (ConfluencePdfError, ConfluenceApiError, ImportError, OSError, ValueError) as exc:
+            rendered_error = exc
         try:
             self.download_native_pdf(page.id, destination)
-        except PdfExportError as exc:
-            try:
-                html = self.get_page_export_view(page.id)
-                render_html_pdf(
-                    page=page,
-                    html=html,
-                    destination=destination,
-                    base_url=self.base_url,
-                    url_fetcher=self._fetch_render_asset,
-                )
-                valid_fallback = destination.read_bytes().startswith(b"%PDF-")
-            except (ConfluencePdfError, ImportError, OSError, ValueError) as fallback_exc:
-                raise PdfExportError(
-                    f"Native PDF export failed and REST fallback failed: {fallback_exc}"
-                ) from fallback_exc
-            if not valid_fallback:
-                raise PdfExportError(
-                    f"Native PDF export failed and REST fallback did not create a valid PDF: {exc}"
-                ) from exc
+        except PdfExportError as native_exc:
+            raise PdfExportError(
+                f"Rendered PDF export failed ({rendered_error or 'invalid PDF output'}) "
+                f"and native export fallback failed: {native_exc}"
+            ) from native_exc
 
     def download_combined_pdf(self, pages: list[Page], destination: Path) -> None:
         if not pages:
@@ -241,7 +307,13 @@ class ConfluenceClient:
         if not destination.read_bytes().startswith(b"%PDF-"):
             raise PdfExportError("Combined PDF export did not create a valid PDF.")
 
-    def download_html(self, page: Page, destination: Path) -> None:
+    def download_html(
+        self,
+        page: Page,
+        destination: Path,
+        *,
+        attachment_targets: dict[str, str] | None = None,
+    ) -> None:
         try:
             html = self.get_page_styled_view(page.id)
             write_confluence_html(
@@ -249,6 +321,8 @@ class ConfluenceClient:
                 html=html,
                 destination=destination,
                 base_url=self.base_url,
+                asset_fetcher=self._fetch_render_asset,
+                attachment_targets=attachment_targets,
             )
         except (ConfluencePdfError, OSError, ValueError) as exc:
             raise PdfExportError(f"HTML export failed for page {page.id}: {exc}") from exc
@@ -388,7 +462,11 @@ class ConfluenceClient:
 
     def _fetch_render_asset(self, url: str) -> dict:
         asset_url = urljoin(self.base_url + "/", url)
-        response = self._request("GET", asset_url, headers={"Accept": "*/*"})
+        if urlsplit(asset_url).netloc != urlsplit(self.base_url).netloc:
+            # Never send the personal access token to a different host.
+            response = httpx.get(asset_url, headers={"Accept": "*/*"}, follow_redirects=True)
+        else:
+            response = self._request("GET", asset_url, headers={"Accept": "*/*"})
         response.raise_for_status()
         return {
             "string": response.content,

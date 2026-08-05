@@ -4,9 +4,10 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import quote
 
 from .client import ConfluenceClient
-from .errors import PdfExportError
+from .errors import AttachmentDownloadError, ConfluenceApiError, PdfExportError
 from .manifest import (
     HTML_MANIFEST_FILENAME,
     MANIFEST_FILENAME,
@@ -14,11 +15,12 @@ from .manifest import (
     read_manifest_entries,
     update_manifest,
 )
-from .models import Page
+from .models import Attachment, Page
 from .render import is_pdf_file
-from .utils import hyperlink, slugify_title
+from .utils import format_file_size, hyperlink, sanitize_filename, slugify_title
 
 HTML_OUTPUT_DIRNAME = "html"
+ATTACHMENTS_DIRNAME = "attachments"
 
 
 @dataclass
@@ -70,6 +72,7 @@ class PdfDownloader:
         skip_unchanged: bool = False,
         combine_children: bool = False,
         download_html: bool = False,
+        download_attachments: bool = False,
     ) -> DownloadSummary:
         summary = DownloadSummary(roots_requested=len(titles))
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -82,13 +85,16 @@ class PdfDownloader:
                 force=force,
                 skip_unchanged=skip_unchanged,
                 download_html=download_html,
+                download_attachments=download_attachments,
             )
 
         pages = self._collect_pages(space_key, titles, include_children)
         summary.pages_found = len(pages)
         manifest_records: list[ManifestRecord] = []
         manifest_path = output_dir / MANIFEST_FILENAME
-        manifest_entries = read_manifest_entries(manifest_path) if skip_unchanged else {}
+        manifest_entries = (
+            read_manifest_entries(manifest_path) if skip_unchanged or download_attachments else {}
+        )
 
         for index, page in enumerate(pages, start=1):
             if self._cancel_requested(summary):
@@ -102,30 +108,46 @@ class PdfDownloader:
             unchanged_destination = find_unchanged_pdf(output_dir, page, manifest_entries)
             if not force and skip_unchanged and unchanged_destination:
                 self._log(f"unchanged; skipping {unchanged_destination.name}")
-                html_path = self._optional_html_copy(
+                html_path, attachments = self._page_extras(
                     page,
                     html_destination,
+                    output_dir=output_dir,
                     force=force,
                     summary=summary,
                     download_html=download_html,
+                    download_attachments=download_attachments,
+                    manifest_entries=manifest_entries,
                 )
                 summary.skipped_unchanged.append(unchanged_destination)
                 manifest_records.append(
-                    ManifestRecord(page=page, pdf_path=unchanged_destination, html_path=html_path)
+                    ManifestRecord(
+                        page=page,
+                        pdf_path=unchanged_destination,
+                        html_path=html_path,
+                        attachments=attachments,
+                    )
                 )
                 continue
             if not force and destination.exists() and is_pdf_file(destination):
                 self._log(f"existing valid PDF; skipping {destination.name}")
-                html_path = self._optional_html_copy(
+                html_path, attachments = self._page_extras(
                     page,
                     html_destination,
+                    output_dir=output_dir,
                     force=force,
                     summary=summary,
                     download_html=download_html,
+                    download_attachments=download_attachments,
+                    manifest_entries=manifest_entries,
                 )
                 summary.skipped.append(destination)
                 manifest_records.append(
-                    ManifestRecord(page=page, pdf_path=destination, html_path=html_path)
+                    ManifestRecord(
+                        page=page,
+                        pdf_path=destination,
+                        html_path=html_path,
+                        attachments=attachments,
+                    )
                 )
                 continue
             try:
@@ -135,16 +157,26 @@ class PdfDownloader:
                 self._log(f"failed: {exc}")
                 summary.failures.append(DownloadFailure(page=page, error=str(exc)))
                 continue
-            html_path = self._optional_html_copy(
+            html_path, attachments = self._page_extras(
                 page,
                 html_destination,
+                output_dir=output_dir,
                 force=force,
                 summary=summary,
                 download_html=download_html,
+                download_attachments=download_attachments,
+                manifest_entries=manifest_entries,
             )
             self._log("done")
             summary.exported.append(destination)
-            manifest_records.append(ManifestRecord(page=page, pdf_path=destination, html_path=html_path))
+            manifest_records.append(
+                ManifestRecord(
+                    page=page,
+                    pdf_path=destination,
+                    html_path=html_path,
+                    attachments=attachments,
+                )
+            )
 
         if manifest_records:
             summary.manifest_path = manifest_path
@@ -162,11 +194,14 @@ class PdfDownloader:
         force: bool,
         skip_unchanged: bool,
         download_html: bool,
+        download_attachments: bool,
     ) -> DownloadSummary:
         summary = DownloadSummary(roots_requested=len(titles))
         output_dir.mkdir(parents=True, exist_ok=True)
         manifest_path = output_dir / MANIFEST_FILENAME
-        manifest_entries = read_manifest_entries(manifest_path) if skip_unchanged else {}
+        manifest_entries = (
+            read_manifest_entries(manifest_path) if skip_unchanged or download_attachments else {}
+        )
         manifest_records: list[ManifestRecord] = []
         seen_ids: set[str] = set()
 
@@ -187,39 +222,46 @@ class PdfDownloader:
                 page.id: build_html_destination(output_dir, page) for page in unique_page_group
             }
 
-            if not force and all_pages_unchanged(output_dir, unique_page_group, manifest_entries):
-                self._log(f"combined subtree unchanged; skipping {destination.name}")
-                html_paths = {
-                    page.id: self._optional_html_copy(
+            def collect_extras(pages: list[Page]) -> dict[str, tuple[Path | None, tuple]]:
+                return {
+                    page.id: self._page_extras(
                         page,
                         html_destinations[page.id],
+                        output_dir=output_dir,
                         force=force,
                         summary=summary,
                         download_html=download_html,
+                        download_attachments=download_attachments,
+                        manifest_entries=manifest_entries,
                     )
-                    for page in unique_page_group
+                    for page in pages
                 }
+
+            if not force and all_pages_unchanged(output_dir, unique_page_group, manifest_entries):
+                self._log(f"combined subtree unchanged; skipping {destination.name}")
+                extras = collect_extras(unique_page_group)
                 summary.skipped_unchanged.append(destination)
                 manifest_records.extend(
-                    ManifestRecord(page=page, pdf_path=destination, html_path=html_paths[page.id])
+                    ManifestRecord(
+                        page=page,
+                        pdf_path=destination,
+                        html_path=extras[page.id][0],
+                        attachments=extras[page.id][1],
+                    )
                     for page in unique_page_group
                 )
                 continue
             if not force and destination.exists() and is_pdf_file(destination):
                 self._log(f"existing valid combined PDF; skipping {destination.name}")
-                html_paths = {
-                    page.id: self._optional_html_copy(
-                        page,
-                        html_destinations[page.id],
-                        force=force,
-                        summary=summary,
-                        download_html=download_html,
-                    )
-                    for page in unique_page_group
-                }
+                extras = collect_extras(unique_page_group)
                 summary.skipped.append(destination)
                 manifest_records.extend(
-                    ManifestRecord(page=page, pdf_path=destination, html_path=html_paths[page.id])
+                    ManifestRecord(
+                        page=page,
+                        pdf_path=destination,
+                        html_path=extras[page.id][0],
+                        attachments=extras[page.id][1],
+                    )
                     for page in unique_page_group
                 )
                 continue
@@ -231,20 +273,16 @@ class PdfDownloader:
                 self._log(f"failed: {exc}")
                 summary.failures.append(DownloadFailure(page=root, error=str(exc)))
                 continue
-            html_paths = {
-                page.id: self._optional_html_copy(
-                    page,
-                    html_destinations[page.id],
-                    force=force,
-                    summary=summary,
-                    download_html=download_html,
-                )
-                for page in unique_page_group
-            }
+            extras = collect_extras(unique_page_group)
             self._log("done")
             summary.exported.append(destination)
             manifest_records.extend(
-                ManifestRecord(page=page, pdf_path=destination, html_path=html_paths[page.id])
+                ManifestRecord(
+                    page=page,
+                    pdf_path=destination,
+                    html_path=extras[page.id][0],
+                    attachments=extras[page.id][1],
+                )
                 for page in unique_page_group
             )
 
@@ -315,6 +353,7 @@ class PdfDownloader:
         *,
         force: bool,
         summary: DownloadSummary,
+        attachment_targets: dict[str, str] | None = None,
     ) -> Path | None:
         if not force and destination.exists():
             self._log(f"existing HTML; skipping {destination.name}", level="verbose")
@@ -322,7 +361,7 @@ class PdfDownloader:
         try:
             self._log(f"writing HTML -> {destination.name}", level="verbose")
             destination.parent.mkdir(parents=True, exist_ok=True)
-            self.client.download_html(page, destination)
+            self.client.download_html(page, destination, attachment_targets=attachment_targets)
         except PdfExportError as exc:
             self._log(f"HTML failed: {exc}")
             summary.failures.append(DownloadFailure(page=page, error=str(exc)))
@@ -337,6 +376,7 @@ class PdfDownloader:
         force: bool,
         summary: DownloadSummary,
         download_html: bool,
+        attachment_targets: dict[str, str] | None = None,
     ) -> Path | None:
         if not download_html:
             return None
@@ -345,7 +385,97 @@ class PdfDownloader:
             destination,
             force=force,
             summary=summary,
+            attachment_targets=attachment_targets,
         )
+
+    def _page_extras(
+        self,
+        page: Page,
+        html_destination: Path,
+        *,
+        output_dir: Path,
+        force: bool,
+        summary: DownloadSummary,
+        download_html: bool,
+        download_attachments: bool,
+        manifest_entries: dict,
+    ) -> tuple[Path | None, tuple[tuple[str, int | None], ...]]:
+        """Fetch a page's attachments and HTML copy, returning manifest details for both."""
+        downloaded = self._optional_attachments(
+            page,
+            output_dir=output_dir,
+            force=force,
+            summary=summary,
+            download_attachments=download_attachments,
+            manifest_entries=manifest_entries,
+        )
+        attachment_targets = {
+            attachment.title: (
+                f"../{ATTACHMENTS_DIRNAME}/{build_attachments_dirname(page)}/{quote(filename)}"
+            )
+            for attachment, filename in downloaded
+        }
+        html_path = self._optional_html_copy(
+            page,
+            html_destination,
+            force=force,
+            summary=summary,
+            download_html=download_html,
+            attachment_targets=attachment_targets or None,
+        )
+        attachments = tuple(
+            (filename, attachment.version) for attachment, filename in downloaded
+        )
+        return html_path, attachments
+
+    def _optional_attachments(
+        self,
+        page: Page,
+        *,
+        output_dir: Path,
+        force: bool,
+        summary: DownloadSummary,
+        download_attachments: bool,
+        manifest_entries: dict,
+    ) -> list[tuple[Attachment, str]]:
+        if not download_attachments:
+            return []
+        try:
+            attachments = self.client.list_attachments(page.id)
+        except ConfluenceApiError as exc:
+            self._log(f"failed: could not list attachments for {page.title}: {exc}")
+            summary.failures.append(DownloadFailure(page=page, error=str(exc)))
+            return []
+        if not attachments:
+            return []
+        directory = build_attachments_destination(output_dir, page)
+        entry = manifest_entries.get(page.id)
+        known_versions = entry.attachment_versions if entry else {}
+        results: list[tuple[Attachment, str]] = []
+        for attachment in attachments:
+            filename = sanitize_filename(attachment.title)
+            destination = directory / filename
+            if (
+                not force
+                and destination.exists()
+                and attachment.version is not None
+                and known_versions.get(filename) == attachment.version
+            ):
+                self._log(f"attachment unchanged; skipping {filename}", level="verbose")
+                results.append((attachment, filename))
+                continue
+            try:
+                self._log(
+                    f"downloading attachment {filename} "
+                    f"({format_file_size(attachment.file_size)})"
+                )
+                self.client.download_attachment(attachment, destination)
+            except AttachmentDownloadError as exc:
+                self._log(f"failed: {exc}")
+                summary.failures.append(DownloadFailure(page=page, error=str(exc)))
+                continue
+            results.append((attachment, filename))
+        return results
 
 
 def build_pdf_filename(page: Page) -> str:
@@ -364,6 +494,14 @@ def build_html_destination(output_dir: Path, page: Page) -> Path:
 
 def build_combined_pdf_filename(page: Page) -> str:
     return f"{slugify_title(page.title)}-combined-{page.id}.pdf"
+
+
+def build_attachments_dirname(page: Page) -> str:
+    return f"{slugify_title(page.title)}-{page.id}"
+
+
+def build_attachments_destination(output_dir: Path, page: Page) -> Path:
+    return output_dir / ATTACHMENTS_DIRNAME / build_attachments_dirname(page)
 
 
 def find_unchanged_pdf(output_dir: Path, page: Page, manifest_entries: dict) -> Path | None:

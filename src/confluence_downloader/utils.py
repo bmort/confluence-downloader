@@ -147,6 +147,23 @@ def decorate_log(message: str) -> str:
     return f"{icon} {message}"
 
 
+def sanitize_filename(name: str) -> str:
+    cleaned = name.replace("/", "_").replace("\\", "_").replace("\0", "")
+    cleaned = cleaned.strip().strip(".")
+    return cleaned or "attachment"
+
+
+def format_file_size(size: int | None) -> str:
+    if size is None:
+        return "unknown size"
+    value = float(size)
+    for unit in ("B", "KB", "MB", "GB"):
+        if value < 1024 or unit == "GB":
+            return f"{value:.0f} {unit}" if unit == "B" else f"{value:.1f} {unit}"
+        value /= 1024
+    return f"{value:.1f} GB"
+
+
 def slugify_title(title: str, max_length: int = 80) -> str:
     slug = title.lower()
     slug = re.sub(r"[^a-z0-9]+", "-", slug)

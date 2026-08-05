@@ -108,6 +108,7 @@ async def test_search_select_confirm_download_flow(tmp_path: Path) -> None:
                 "skip_unchanged": True,
                 "combine_children": False,
                 "download_html": False,
+                "download_attachments": False,
             }
         ]
 
@@ -153,6 +154,7 @@ async def test_search_recursive_download_uses_include_children(tmp_path: Path) -
                 "skip_unchanged": True,
                 "combine_children": True,
                 "download_html": False,
+                "download_attachments": False,
             }
         ]
 
@@ -196,6 +198,7 @@ async def test_browse_tree_subtree_select_and_download_flow(tmp_path: Path) -> N
                 "skip_unchanged": True,
                 "combine_children": False,
                 "download_html": False,
+                "download_attachments": False,
             }
         ]
 

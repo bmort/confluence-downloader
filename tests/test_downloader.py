@@ -2,17 +2,21 @@ from pathlib import Path
 
 from confluence_downloader.downloader import (
     PdfDownloader,
+    build_attachments_destination,
     build_html_destination,
     build_html_filename,
     build_pdf_filename,
 )
-from confluence_downloader.models import Page
+from confluence_downloader.models import Attachment, Page
 
 
 class FakeClient:
     def __init__(self) -> None:
         self.downloaded: list[tuple[str, Path]] = []
         self.downloaded_html: list[tuple[str, Path]] = []
+        self.downloaded_attachments: list[tuple[str, Path]] = []
+        self.attachments: dict[str, list[Attachment]] = {}
+        self.html_attachment_targets: dict[str, str] | None = None
 
     def resolve_page_by_title(self, space_key: str, title: str) -> Page:
         return Page(id={"Root": "1", "Other": "2"}[title], title=title, version=5)
@@ -43,9 +47,24 @@ class FakeClient:
         self.downloaded.append(("+".join(page.id for page in pages), destination))
         destination.write_bytes(b"%PDF- combined")
 
-    def download_html(self, page: Page, destination: Path) -> None:
+    def download_html(
+        self,
+        page: Page,
+        destination: Path,
+        *,
+        attachment_targets: dict[str, str] | None = None,
+    ) -> None:
         self.downloaded_html.append((page.id, destination))
+        self.html_attachment_targets = attachment_targets
         destination.write_text(f"<html><body>{page.title}</body></html>", encoding="utf-8")
+
+    def list_attachments(self, page_id: str) -> list[Attachment]:
+        return self.attachments.get(page_id, [])
+
+    def download_attachment(self, attachment: Attachment, destination: Path) -> None:
+        self.downloaded_attachments.append((attachment.id, destination))
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(b"attachment bytes")
 
 
 def test_download_logs_link_page_titles_to_their_url(tmp_path: Path) -> None:
@@ -341,3 +360,77 @@ def test_downloader_can_optionally_download_combined_root_html_pages(tmp_path: P
     assert [page_id for page_id, _ in fake_client.downloaded_html] == ["1", "3", "4"]
     manifest = (tmp_path / "downloaded_pages.md").read_text(encoding="utf-8")
     assert "html/root-1-v5.html" in manifest
+
+
+def test_downloader_can_optionally_download_attachments(tmp_path: Path) -> None:
+    fake_client = FakeClient()
+    fake_client.attachments["1"] = [
+        Attachment(
+            id="a1",
+            title="meeting notes.txt",
+            media_type="text/plain",
+            file_size=10,
+            version=3,
+            download_path="/download/attachments/1/meeting%20notes.txt",
+        ),
+    ]
+    downloader = PdfDownloader(fake_client)  # type: ignore[arg-type]
+
+    downloader.download(
+        space_key="DOC",
+        titles=["Root"],
+        output_dir=tmp_path,
+        include_children=False,
+        download_html=True,
+        download_attachments=True,
+    )
+
+    saved = tmp_path / "attachments" / "root-1" / "meeting notes.txt"
+    assert saved.read_bytes() == b"attachment bytes"
+    assert fake_client.html_attachment_targets == {
+        "meeting notes.txt": "../attachments/root-1/meeting%20notes.txt"
+    }
+    manifest = (tmp_path / "downloaded_pages.md").read_text(encoding="utf-8")
+    assert "meeting notes.txt@v3" in manifest
+
+
+def test_downloader_skips_unchanged_attachments_on_rerun(tmp_path: Path) -> None:
+    fake_client = FakeClient()
+    fake_client.attachments["1"] = [
+        Attachment(
+            id="a1",
+            title="notes.txt",
+            version=3,
+            download_path="/download/attachments/1/notes.txt",
+        ),
+    ]
+    downloader = PdfDownloader(fake_client)  # type: ignore[arg-type]
+    common = dict(
+        space_key="DOC",
+        titles=["Root"],
+        output_dir=tmp_path,
+        include_children=False,
+        download_attachments=True,
+    )
+
+    downloader.download(**common)
+    assert len(fake_client.downloaded_attachments) == 1
+
+    downloader.download(**common)
+    assert len(fake_client.downloaded_attachments) == 1
+
+    fake_client.attachments["1"] = [
+        Attachment(
+            id="a1",
+            title="notes.txt",
+            version=4,
+            download_path="/download/attachments/1/notes.txt",
+        ),
+    ]
+    downloader.download(**common)
+    assert len(fake_client.downloaded_attachments) == 2
+
+
+def test_downloader_attachments_dirname_helpers(tmp_path: Path) -> None:
+    page = Page(id="9", title="My Page!", version=1)
+    assert build_attachments_destination(tmp_path, page) == tmp_path / "attachments" / "my-page-9"

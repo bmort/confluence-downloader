@@ -1,15 +1,25 @@
 from __future__ import annotations
 
+import base64
 from pathlib import Path
 import os
 import re
 import sys
 from typing import Callable
-from urllib.parse import urljoin
+from urllib.parse import unquote, urljoin, urlsplit
+
+from bs4 import BeautifulSoup
+from bs4.element import Tag
 
 from .models import Page
 
 UrlFetcher = Callable[[str], dict]
+
+WIDE_TABLE_CLASS = "confluence-downloader-wide-table"
+# A table lands on a landscape page when it has this many columns...
+WIDE_TABLE_MIN_COLUMNS = 4
+# ...or this many columns combined with nested lists inside a cell.
+WIDE_TABLE_NESTED_LIST_MIN_COLUMNS = 3
 
 
 def write_confluence_html(
@@ -18,6 +28,8 @@ def write_confluence_html(
     html: str,
     destination: Path,
     base_url: str,
+    asset_fetcher: UrlFetcher | None = None,
+    attachment_targets: dict[str, str] | None = None,
 ) -> None:
     """Write a standalone HTML copy of a Confluence page."""
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -27,7 +39,11 @@ def write_confluence_html(
     else:
         document = _wrap_confluence_html_page(page, html, base_url)
     document = _rewrite_root_relative_urls(document, base_url)
-    document = _prepare_confluence_html(document)
+    document = _prepare_web_html(document, base_url=base_url, asset_fetcher=asset_fetcher)
+    if attachment_targets:
+        document = _rewrite_attachment_links(
+            document, page_id=page.id, targets=attachment_targets
+        )
     destination.write_text(document, encoding="utf-8")
 
 
@@ -48,7 +64,7 @@ def render_html_pdf(
         document = _inject_source_metadata(html, page)
     else:
         document = _wrap_confluence_html(page, html)
-    document = _prepare_confluence_html(document)
+    document = _prepare_pdf_html(document)
     HTML(string=document, base_url=base_url, url_fetcher=url_fetcher).write_pdf(destination)
 
 
@@ -65,7 +81,7 @@ def render_combined_html_pdf(
     from weasyprint import HTML
 
     destination.parent.mkdir(parents=True, exist_ok=True)
-    document = _prepare_confluence_html(_wrap_combined_confluence_html(title, sections))
+    document = _prepare_pdf_html(_wrap_combined_confluence_html(title, sections))
     HTML(string=document, base_url=base_url, url_fetcher=url_fetcher).write_pdf(destination)
 
 
@@ -77,6 +93,72 @@ def is_pdf_file(path: Path) -> bool:
         return False
 
 
+_PDF_BASE_CSS = """
+    body {
+      color: #172b4d;
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 10.5pt;
+      line-height: 1.45;
+    }
+    h1, h2, h3, h4, h5, h6 {
+      color: #172b4d;
+      line-height: 1.2;
+      margin: 1.2em 0 0.45em;
+    }
+    h1 {
+      border-bottom: 1px solid #dfe1e6;
+      font-size: 22pt;
+      padding-bottom: 8px;
+    }
+    h2 { font-size: 17pt; }
+    h3 { font-size: 14pt; }
+    p { margin: 0 0 0.75em; }
+    a { color: #0052cc; overflow-wrap: anywhere; text-decoration: none; }
+    table {
+      border-collapse: collapse;
+      margin: 0.8em 0 1em;
+      table-layout: fixed;
+      width: 100%;
+    }
+    th, td {
+      border: 1px solid #c1c7d0;
+      overflow-wrap: anywhere;
+      padding: 5px 7px;
+      vertical-align: top;
+    }
+    th {
+      background: #f4f5f7;
+      font-weight: 700;
+    }
+    img, svg {
+      height: auto;
+      max-width: 100%;
+    }
+    pre, code {
+      background: #f4f5f7;
+      border-radius: 3px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 9pt;
+    }
+    pre {
+      overflow-wrap: break-word;
+      padding: 8px;
+      white-space: pre-wrap;
+    }
+    blockquote {
+      border-left: 3px solid #c1c7d0;
+      color: #44546f;
+      margin-left: 0;
+      padding-left: 12px;
+    }
+    .metadata {
+      color: #626f86;
+      font-size: 8.5pt;
+      margin-bottom: 16px;
+    }
+"""
+
+
 def _wrap_confluence_html(page: Page, body_html: str) -> str:
     title = _escape_html(page.title)
     source = _escape_html(page.url)
@@ -86,81 +168,7 @@ def _wrap_confluence_html(page: Page, body_html: str) -> str:
   <meta charset="utf-8">
   <title>{title}</title>
   <style>
-    @page {{
-      size: A4;
-      margin: 18mm 16mm;
-    }}
-    body {{
-      color: #172b4d;
-      font-family: Arial, Helvetica, sans-serif;
-      font-size: 10.5pt;
-      line-height: 1.45;
-    }}
-    h1, h2, h3, h4, h5, h6 {{
-      color: #172b4d;
-      line-height: 1.2;
-      margin: 1.2em 0 0.45em;
-    }}
-    h1 {{
-      border-bottom: 1px solid #dfe1e6;
-      font-size: 22pt;
-      padding-bottom: 8px;
-    }}
-    h2 {{ font-size: 17pt; }}
-    h3 {{ font-size: 14pt; }}
-    p {{ margin: 0 0 0.75em; }}
-    a {{ color: #0052cc; overflow-wrap: anywhere; text-decoration: none; }}
-    table {{
-      border-collapse: collapse;
-      margin: 0.8em 0 1em;
-      table-layout: fixed;
-      width: 100%;
-    }}
-    th, td {{
-      border: 1px solid #c1c7d0;
-      overflow-wrap: anywhere;
-      padding: 5px 7px;
-      vertical-align: top;
-    }}
-    th {{
-      background: #f4f5f7;
-      font-weight: 700;
-    }}
-    img, svg {{
-      height: auto;
-      max-width: 100%;
-    }}
-    pre, code {{
-      background: #f4f5f7;
-      border-radius: 3px;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      font-size: 9pt;
-    }}
-    pre {{
-      overflow-wrap: break-word;
-      padding: 8px;
-      white-space: pre-wrap;
-    }}
-    blockquote {{
-      border-left: 3px solid #c1c7d0;
-      color: #44546f;
-      margin-left: 0;
-      padding-left: 12px;
-    }}
-    .metadata {{
-      color: #626f86;
-      font-size: 8.5pt;
-      margin-bottom: 16px;
-    }}
-    .confluence-information-macro,
-    .confluence-warning-macro,
-    .confluence-note-macro,
-    .confluence-tip-macro {{
-      border: 1px solid #c1c7d0;
-      border-radius: 4px;
-      margin: 0.8em 0;
-      padding: 8px 10px;
-    }}
+{_PDF_BASE_CSS}
   </style>
 </head>
 <body>
@@ -249,72 +257,7 @@ def _wrap_combined_confluence_html(title: str, sections: list[tuple[Page, str]])
   <meta charset="utf-8">
   <title>{safe_title}</title>
   <style>
-    @page {{
-      size: A4;
-      margin: 18mm 16mm;
-    }}
-    body {{
-      color: #172b4d;
-      font-family: Arial, Helvetica, sans-serif;
-      font-size: 10.5pt;
-      line-height: 1.45;
-    }}
-    h1, h2, h3, h4, h5, h6 {{
-      color: #172b4d;
-      line-height: 1.2;
-      margin: 1.2em 0 0.45em;
-    }}
-    h1 {{
-      border-bottom: 1px solid #dfe1e6;
-      font-size: 22pt;
-      padding-bottom: 8px;
-    }}
-    h2 {{ font-size: 17pt; }}
-    h3 {{ font-size: 14pt; }}
-    p {{ margin: 0 0 0.75em; }}
-    a {{ color: #0052cc; overflow-wrap: anywhere; text-decoration: none; }}
-    table {{
-      border-collapse: collapse;
-      margin: 0.8em 0 1em;
-      table-layout: fixed;
-      width: 100%;
-    }}
-    th, td {{
-      border: 1px solid #c1c7d0;
-      overflow-wrap: anywhere;
-      padding: 5px 7px;
-      vertical-align: top;
-    }}
-    th {{
-      background: #f4f5f7;
-      font-weight: 700;
-    }}
-    img, svg {{
-      height: auto;
-      max-width: 100%;
-    }}
-    pre, code {{
-      background: #f4f5f7;
-      border-radius: 3px;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      font-size: 9pt;
-    }}
-    pre {{
-      overflow-wrap: break-word;
-      padding: 8px;
-      white-space: pre-wrap;
-    }}
-    blockquote {{
-      border-left: 3px solid #c1c7d0;
-      color: #44546f;
-      margin-left: 0;
-      padding-left: 12px;
-    }}
-    .metadata {{
-      color: #626f86;
-      font-size: 8.5pt;
-      margin-bottom: 16px;
-    }}
+{_PDF_BASE_CSS}
     .combined-page {{
       break-before: page;
     }}
@@ -343,10 +286,24 @@ def _render_section(page: Page, body_html: str) -> str:
 """
 
 
-def _prepare_confluence_html(document: str) -> str:
-    """Apply print-only fixes for Confluence macros that normally depend on JavaScript."""
+def _prepare_pdf_html(document: str) -> str:
+    """Apply print fixes: unhide JS-dependent macros, route wide tables to landscape pages."""
     document = _unhide_aura_tab_panels(document)
-    return _inject_head_style(document, _confluence_print_fixes())
+    document = _tag_wide_tables(document)
+    return _inject_head_style(document, _pdf_print_fixes())
+
+
+def _prepare_web_html(
+    document: str,
+    *,
+    base_url: str,
+    asset_fetcher: UrlFetcher | None,
+) -> str:
+    """Apply browser fixes: unhide JS-dependent macros, inline images for offline viewing."""
+    document = _unhide_aura_tab_panels(document)
+    if asset_fetcher is not None:
+        document = _inline_images(document, base_url=base_url, asset_fetcher=asset_fetcher)
+    return _inject_head_style(document, _web_fixes())
 
 
 def _is_full_html_document(html: str) -> bool:
@@ -412,6 +369,119 @@ def _inject_head_style(document: str, css: str) -> str:
     return f"{style}\n{document}"
 
 
+def _tag_wide_tables(document: str) -> str:
+    """Wrap wide tables so CSS can route them onto landscape pages."""
+    soup = BeautifulSoup(document, "html.parser")
+    changed = False
+    for table in soup.find_all("table"):
+        if not isinstance(table, Tag) or table.find_parent("table") is not None:
+            continue
+        if table.find_parent(class_=WIDE_TABLE_CLASS) is not None:
+            continue
+        if not _is_wide_table(table):
+            continue
+        wrapper = soup.new_tag("div", attrs={"class": WIDE_TABLE_CLASS})
+        table.wrap(wrapper)
+        changed = True
+    return str(soup) if changed else document
+
+
+def _is_wide_table(table: Tag) -> bool:
+    columns = _table_column_count(table)
+    if columns >= WIDE_TABLE_MIN_COLUMNS:
+        return True
+    if columns >= WIDE_TABLE_NESTED_LIST_MIN_COLUMNS and _has_nested_list_cell(table):
+        return True
+    return False
+
+
+def _table_column_count(table: Tag) -> int:
+    widest = 0
+    for row in table.find_all("tr"):
+        if row.find_parent("table") is not table:
+            continue
+        columns = sum(
+            _colspan(cell)
+            for cell in row.find_all(["td", "th"], recursive=False)
+        )
+        widest = max(widest, columns)
+    return widest
+
+
+def _colspan(cell: Tag) -> int:
+    value = cell.get("colspan")
+    try:
+        return max(1, int(str(value)))
+    except (TypeError, ValueError):
+        return 1
+
+
+def _has_nested_list_cell(table: Tag) -> bool:
+    for cell in table.find_all(["td", "th"]):
+        if cell.find_parent("table") is not table:
+            continue
+        for list_tag in cell.find_all(["ul", "ol"]):
+            if list_tag.find(["ul", "ol"]) is not None:
+                return True
+    return False
+
+
+def _inline_images(document: str, *, base_url: str, asset_fetcher: UrlFetcher) -> str:
+    """Embed same-instance images as data URIs so the saved HTML works offline."""
+    soup = BeautifulSoup(document, "html.parser")
+    base_host = urlsplit(base_url).netloc
+    changed = False
+    for image in soup.find_all("img"):
+        if not isinstance(image, Tag):
+            continue
+        src = image.get("src")
+        if not src or str(src).startswith("data:"):
+            continue
+        resolved = urljoin(base_url.rstrip("/") + "/", str(src))
+        # Never fetch third-party hosts here: the fetcher authenticates as the user.
+        if urlsplit(resolved).netloc != base_host:
+            continue
+        try:
+            asset = asset_fetcher(resolved)
+        except Exception:  # noqa: BLE001 - any fetch failure keeps the remote URL
+            continue
+        payload = asset.get("string")
+        if not payload:
+            continue
+        mime_type = asset.get("mime_type") or "application/octet-stream"
+        encoded = base64.b64encode(payload).decode("ascii")
+        image["src"] = f"data:{mime_type};base64,{encoded}"
+        del image["srcset"]
+        changed = True
+    return str(soup) if changed else document
+
+
+def _rewrite_attachment_links(
+    document: str,
+    *,
+    page_id: str,
+    targets: dict[str, str],
+) -> str:
+    """Point links at locally downloaded attachment copies."""
+    soup = BeautifulSoup(document, "html.parser")
+    marker = f"/download/attachments/{page_id}/"
+    changed = False
+    for anchor in soup.find_all("a", href=True):
+        if not isinstance(anchor, Tag):
+            continue
+        path = unquote(urlsplit(str(anchor["href"])).path)
+        if marker not in path:
+            continue
+        filename = path.split(marker, 1)[1]
+        if "/" in filename:
+            continue
+        target = targets.get(filename)
+        if target:
+            anchor["href"] = target
+            changed = True
+    return str(soup) if changed else document
+
+
 def _unhide_aura_tab_panels(document: str) -> str:
     def unhide_panel(match: re.Match[str]) -> str:
         tag = match.group(0)
@@ -424,7 +494,7 @@ def _unhide_aura_tab_panels(document: str) -> str:
     return re.sub(r"<div\b[^>]*>", unhide_panel, document, flags=re.IGNORECASE)
 
 
-def _confluence_print_fixes() -> str:
+def _shared_macro_fixes() -> str:
     return """
     .confluence-downloader-metadata {
       color: #626f86;
@@ -434,47 +504,6 @@ def _confluence_print_fixes() -> str:
     .confluence-downloader-metadata a {
       color: #0052cc;
       text-decoration: none;
-    }
-    .table-wrap,
-    .table-wrapper {
-      box-sizing: border-box;
-      max-width: 100% !important;
-      overflow: hidden;
-    }
-    .aura-tab-container,
-    .aura-tab-content,
-    .aura-tab-container div,
-    [data-aura-tab-title],
-    .content-wrapper,
-    p,
-    li {
-      box-sizing: border-box;
-      max-width: 100% !important;
-      overflow-wrap: anywhere;
-    }
-    table.confluenceTable,
-    table.aui,
-    .table-wrap > table,
-    .table-wrapper > table {
-      table-layout: fixed !important;
-      width: 100% !important;
-      max-width: 100% !important;
-    }
-    table.confluenceTable col,
-    table.aui col {
-      width: auto !important;
-    }
-    table.confluenceTable th,
-    table.confluenceTable td,
-    table.aui th,
-    table.aui td {
-      overflow-wrap: anywhere !important;
-      word-break: normal;
-    }
-    table.confluenceTable img,
-    table.aui img {
-      max-width: 100% !important;
-      height: auto !important;
     }
     [data-macro-name="aura-tab"] {
       border-top: 2px solid #6554c0;
@@ -496,6 +525,93 @@ def _confluence_print_fixes() -> str:
     }
     .aura-tab-nav-wrapper {
       display: none !important;
+    }
+    """
+
+
+def _pdf_print_fixes() -> str:
+    return _shared_macro_fixes() + f"""
+    @page {{
+      size: A4;
+      margin: 18mm 16mm;
+    }}
+    @page landscape-table {{
+      size: A4 landscape;
+      margin: 16mm 18mm;
+    }}
+    .{WIDE_TABLE_CLASS} {{
+      page: landscape-table;
+    }}
+    .{WIDE_TABLE_CLASS} table {{
+      font-size: 9pt;
+    }}
+    .{WIDE_TABLE_CLASS} th,
+    .{WIDE_TABLE_CLASS} td {{
+      padding: 4px 6px;
+    }}
+    th ul, th ol, td ul, td ol {{
+      margin: 0.2em 0 0.4em;
+      padding-left: 14px;
+    }}
+    th li, td li {{
+      margin: 0 0 0.2em;
+    }}
+    .table-wrap,
+    .table-wrapper {{
+      box-sizing: border-box;
+      max-width: 100% !important;
+      overflow: hidden;
+    }}
+    .aura-tab-container,
+    .aura-tab-content,
+    .aura-tab-container div,
+    [data-aura-tab-title],
+    .content-wrapper,
+    p,
+    li {{
+      box-sizing: border-box;
+      max-width: 100% !important;
+      overflow-wrap: anywhere;
+    }}
+    table.confluenceTable,
+    table.aui,
+    .table-wrap > table,
+    .table-wrapper > table {{
+      table-layout: fixed !important;
+      width: 100% !important;
+      max-width: 100% !important;
+    }}
+    table.confluenceTable col,
+    table.aui col {{
+      width: auto !important;
+    }}
+    table.confluenceTable th,
+    table.confluenceTable td,
+    table.aui th,
+    table.aui td {{
+      overflow-wrap: anywhere !important;
+      word-break: normal;
+    }}
+    table.confluenceTable img,
+    table.aui img {{
+      max-width: 100% !important;
+      height: auto !important;
+    }}
+    """
+
+
+def _web_fixes() -> str:
+    return _shared_macro_fixes() + """
+    .table-wrap,
+    .table-wrapper {
+      box-sizing: border-box;
+      max-width: 100%;
+      overflow-x: auto;
+    }
+    table.confluenceTable img,
+    table.aui img {
+      max-width: 100%;
+      height: auto;
     }
     """
 

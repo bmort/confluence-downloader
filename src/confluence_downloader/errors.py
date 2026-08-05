@@ -23,3 +23,7 @@ class PageLookupError(ConfluencePdfError):
 
 class PdfExportError(ConfluencePdfError):
     """Raised when a page cannot be exported as PDF."""
+
+
+class AttachmentDownloadError(ConfluencePdfError):
+    """Raised when a page attachment cannot be downloaded."""

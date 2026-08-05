@@ -48,6 +48,7 @@ class ConfirmScreen(ModalScreen[DownloadPlan | None]):
                     id="combine",
                 )
             yield Checkbox("Also download HTML copies", value=False, id="html")
+            yield Checkbox("Also download attached files", value=False, id="attachments")
             yield Checkbox("Force re-download of unchanged pages", value=False, id="force")
             yield Label(self._count_text(count), id="count")
             with Horizontal(id="confirm-buttons"):
@@ -143,6 +144,7 @@ class ConfirmScreen(ModalScreen[DownloadPlan | None]):
 
     def _build_plan(self) -> DownloadPlan:
         html = self.query_one("#html", Checkbox).value
+        attachments = self.query_one("#attachments", Checkbox).value
         force = self.query_one("#force", Checkbox).value
         if self.mode == "search" and self._children_mode == CHILDREN_RECURSIVE:
             return DownloadPlan(
@@ -150,6 +152,7 @@ class ConfirmScreen(ModalScreen[DownloadPlan | None]):
                 include_children=True,
                 combine_children=self.query_one("#combine", Checkbox).value,
                 download_html=html,
+                download_attachments=attachments,
                 force=force,
                 fallback_space=self.fallback_space,
             )
@@ -160,6 +163,7 @@ class ConfirmScreen(ModalScreen[DownloadPlan | None]):
         return DownloadPlan(
             pages=pages,
             download_html=html,
+            download_attachments=attachments,
             force=force,
             fallback_space=self.fallback_space,
         )

@@ -116,6 +116,14 @@ def download(
             rich_help_panel=OPTIONAL_HELP_PANEL,
         ),
     ] = False,
+    download_attachments: Annotated[
+        bool,
+        typer.Option(
+            "--download-attachments",
+            help="Also download each page's attached files.",
+            rich_help_panel=OPTIONAL_HELP_PANEL,
+        ),
+    ] = False,
     base_url: Annotated[
         str | None,
         typer.Option(
@@ -208,6 +216,7 @@ def download(
                 force=force,
                 combine_children=combine_children,
                 download_html=download_html,
+                download_attachments=download_attachments,
             )
 
         _print_summary(summary, output_dir)
@@ -274,6 +283,14 @@ def bulk(
         typer.Option(
             "--download-html",
             help="Also download each Confluence page as a standalone HTML file.",
+            rich_help_panel=OPTIONAL_HELP_PANEL,
+        ),
+    ] = False,
+    download_attachments: Annotated[
+        bool,
+        typer.Option(
+            "--download-attachments",
+            help="Also download each page's attached files.",
             rich_help_panel=OPTIONAL_HELP_PANEL,
         ),
     ] = False,
@@ -394,6 +411,7 @@ def bulk(
                     skip_unchanged=True,
                     combine_children=combine_children,
                     download_html=download_html,
+                    download_attachments=download_attachments,
                 )
                 _print_summary(summary, resolved_output_dir)
                 if summary.failed:
@@ -1063,6 +1081,7 @@ def _prompt_download_pages(
     assume_yes: bool,
     fallback_space: str | None = None,
     download_html: bool = False,
+    download_attachments: bool = False,
 ) -> bool:
     if not pages:
         return False
@@ -1085,6 +1104,7 @@ def _prompt_download_pages(
             skip_unchanged=True,
             combine_children=True,
             download_html=download_html,
+            download_attachments=download_attachments,
         )
         _print_summary(summary, output_dir)
         if summary.failed:

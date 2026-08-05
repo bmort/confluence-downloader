@@ -7,12 +7,13 @@ import pytest
 
 from confluence_downloader.client import ConfluenceClient
 from confluence_downloader.errors import (
+    AttachmentDownloadError,
     AuthenticationError,
     ConfluenceApiError,
     PageLookupError,
     PdfExportError,
 )
-from confluence_downloader.models import Page, Space
+from confluence_downloader.models import Attachment, Page, Space
 
 
 def make_client(handler) -> ConfluenceClient:
@@ -288,8 +289,10 @@ def test_iter_descendants_recurses_depth_first() -> None:
         ]
 
 
-def test_download_pdf_follows_flyingpdf_redirect(tmp_path: Path) -> None:
+def test_download_pdf_falls_back_to_native_flyingpdf_export(tmp_path: Path) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/rest/api/content/123"):
+            return httpx.Response(404)
         if request.url.path.endswith("/pdfpageexport.action"):
             assert request.headers["x-atlassian-token"] == "no-check"
             return httpx.Response(302, headers={"location": "/confluence/download/export/page.pdf"})
@@ -302,6 +305,15 @@ def test_download_pdf_follows_flyingpdf_redirect(tmp_path: Path) -> None:
         client.download_pdf(Page(id="123", title="Root"), output)
 
     assert output.read_bytes() == b"%PDF- test"
+
+
+def test_download_pdf_reports_both_failures(tmp_path: Path) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404)
+
+    with make_client(handler) as client:
+        with pytest.raises(PdfExportError, match="native export fallback failed"):
+            client.download_pdf(Page(id="123", title="Root"), tmp_path / "page.pdf")
 
 
 def test_download_native_pdf_raises_on_export_error(tmp_path: Path) -> None:
@@ -337,14 +349,10 @@ def test_download_native_pdf_rejects_html_login_page(tmp_path: Path) -> None:
             client.download_native_pdf("123", tmp_path / "page.pdf")
 
 
-def test_download_pdf_falls_back_to_rest_export_view(tmp_path: Path) -> None:
+def test_download_pdf_renders_rest_export_view_without_native_export(tmp_path: Path) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path.endswith("/pdfpageexport.action"):
-            return httpx.Response(
-                200,
-                headers={"content-type": "text/html"},
-                content=b"<!DOCTYPE html><h1>Verify your login via MFA</h1>",
-            )
+            raise AssertionError("native export should not be used when rendering succeeds")
         if request.url.path.endswith("/rest/api/content/123"):
             assert request.url.params["expand"] == "body.styled_view,body.export_view"
             return httpx.Response(
@@ -460,3 +468,69 @@ def test_list_spaces_paginates() -> None:
             # No webui link in the API response: fall back to the conventional display URL.
             Space(key="OPS", name="Operations", url="https://confluence.example.test/confluence/display/OPS"),
         ]
+
+
+def test_list_attachments_paginates_and_parses_metadata() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path.endswith("/rest/api/content/123/child/attachment")
+        assert request.url.params["expand"] == "version"
+        start = int(request.url.params["start"])
+        if start == 0:
+            results = [
+                {
+                    "id": "a1",
+                    "title": "notes.txt",
+                    "extensions": {"mediaType": "text/plain", "fileSize": 42},
+                    "version": {"number": 3},
+                    "_links": {"download": "/download/attachments/123/notes.txt?version=3"},
+                }
+            ]
+            return httpx.Response(200, json={"results": results, "size": 1, "limit": 1})
+        return httpx.Response(200, json={"results": [], "size": 0, "limit": 1})
+
+    with make_client(handler) as client:
+        attachments = client.list_attachments("123", page_size=1)
+
+    assert attachments == [
+        Attachment(
+            id="a1",
+            title="notes.txt",
+            media_type="text/plain",
+            file_size=42,
+            version=3,
+            download_path="/download/attachments/123/notes.txt?version=3",
+        )
+    ]
+
+
+def test_download_attachment_streams_to_destination(tmp_path: Path) -> None:
+    attachment = Attachment(
+        id="a1",
+        title="notes.txt",
+        download_path="/download/attachments/123/notes.txt?version=3",
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path.endswith("/download/attachments/123/notes.txt")
+        return httpx.Response(200, content=b"file body")
+
+    destination = tmp_path / "notes.txt"
+    with make_client(handler) as client:
+        client.download_attachment(attachment, destination)
+
+    assert destination.read_bytes() == b"file body"
+
+
+def test_download_attachment_raises_on_http_error(tmp_path: Path) -> None:
+    attachment = Attachment(
+        id="a1",
+        title="notes.txt",
+        download_path="/download/attachments/123/notes.txt",
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404)
+
+    with make_client(handler) as client:
+        with pytest.raises(AttachmentDownloadError, match="HTTP 404"):
+            client.download_attachment(attachment, tmp_path / "notes.txt")

@@ -18,6 +18,7 @@ prompted-download flows by comparing Confluence versions with the local manifest
 | Download a page and all descendants                 | Add `--include-children`                                      |
 | Get one PDF per page instead of a combined tree PDF | Add `--separate-pages`                                        |
 | Keep an HTML copy close to the Confluence view      | Add `--download-html`                                         |
+| Download the files attached to each page            | Add `--download-attachments`                                  |
 | Download pages across multiple spaces               | Use `confluence-downloader bulk --config pages.json`                 |
 | Skip pages already downloaded at the same version   | Use bulk or `--ask-download`, which read `downloaded_pages.md` |
 | Discover pages and build a bulk config              | Use `confluence-downloader list --bulk-config pages.json`            |
@@ -207,6 +208,7 @@ re-downloads with `bulk`.
 | `--separate-pages`   | `-p`       | `download`, `bulk`                | Off                                           | Write one PDF per page instead of one combined tree PDF                           |
 | `--force`            | `-f`       | `download`, `bulk`, prompted downloads | Off                                      | Regenerate even when an existing PDF or manifest version would normally skip work |
 | `--download-html`    |            | `download`, `bulk`, prompted downloads | Off                                      | Also write one standalone HTML copy per Confluence page under `html/`             |
+| `--download-attachments` |        | `download`, `bulk`                | Off                                           | Also download each page's attached files under `attachments/<page-slug>-<id>/`    |
 | `--output-dir`       | `-o`       | `download`, `bulk`, prompted downloads | Current directory                        | Directory where PDFs, optional HTML copies, and manifests are written             |
 | `--ask-download`     | `-a`       | `list`, `search`                  | Off                                           | Prompt to download the listed or matched pages after showing results              |
 | `--yes`              | `-y`       | `list`, `search` with `--ask-download` | Off                                      | Auto-confirm prompted downloads                                                   |
@@ -421,11 +423,13 @@ path.
 ```
 
 Filenames use the slugified page title, then the page ID, to avoid collisions. If
-`--download-html` is supplied, page HTML copies are written under `html/`:
+`--download-html` is supplied, page HTML copies are written under `html/`, and if
+`--download-attachments` is supplied, attached files are written under `attachments/`:
 
 ```text
 architecture-overview-123456-v7.pdf
 html/architecture-overview-123456-v7.html
+attachments/architecture-overview-123456/design-notes.xlsx
 architecture-overview-combined-123456.pdf
 ```
 
@@ -439,24 +443,29 @@ tables include:
 - version date
 - local PDF filename
 - local HTML filename, when `--download-html` was used
+- attachment filenames and versions, when `--download-attachments` was used
 
 Rerunning the tool updates existing manifest rows instead of adding duplicates.
+Attachments whose manifest version is unchanged are not re-downloaded.
 
 ## 🛠 PDF and HTML Rendering Behavior
 
-The tool first tries Confluence Data Center's native FlyingPDF export flow. If Confluence
-returns a login or MFA page instead of PDF bytes, it falls back to rendering the page's
-REST `body.export_view` HTML with WeasyPrint.
+PDFs are rendered locally from the page's REST `body.export_view` HTML with WeasyPrint,
+producing consistent, searchable output. If the REST render fails, the tool falls back
+to Confluence Data Center's native FlyingPDF export flow.
 
-The fallback renderer is designed to preserve headings, tables, inline formatting, and
-images that can be fetched through the configured PAT. Existing `.pdf` files that are
-actually HTML are detected and replaced on the next run.
+The renderer preserves headings, tables, inline formatting, and images that can be
+fetched through the configured PAT. Wide tables (four or more columns, or three or more
+columns containing nested bullet lists) are placed on landscape A4 pages, and list
+indentation inside table cells is compressed so deeply nested bullets stay readable.
+Existing `.pdf` files that are actually HTML are detected and replaced on the next run.
 
 When `--download-html` is used, the `.html` copy writes Confluence REST
-`body.styled_view` when available, falling back to `body.export_view`. The file includes
-a `<base>` tag for the configured Confluence URL so relative image and attachment links
-resolve as closely as possible to the original page when opened in a browser with access
-to Confluence.
+`body.styled_view` when available, falling back to `body.export_view`. Images served by
+the Confluence instance are embedded as data URIs so the saved page renders offline;
+wide tables scroll horizontally like the original page. When `--download-attachments`
+is also used, attachment links in the saved HTML point at the locally downloaded
+copies.
 
 ## 🧪 Development
 
