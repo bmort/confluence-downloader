@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import os
-from collections import defaultdict
+import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated
@@ -16,7 +15,15 @@ from .downloader import PdfDownloader
 from .errors import ConfigError, ConfluencePdfError
 from .models import Page
 from .tree import TreePage, list_space_tree
-from .utils import merge_titles, normalize_base_url
+from .utils import (
+    bulk_requests_from_pages as _bulk_requests_from_pages,
+    decorate_log as _decorate_log,
+    format_last_edited_age as _format_last_edited_age,
+    merge_titles,
+    normalize_base_url,
+    strip_hyperlinks as _strip_hyperlinks,
+    titles_by_space as _titles_by_space,
+)
 
 app = typer.Typer(
     help="Download Confluence Data Center pages as PDFs.",
@@ -833,6 +840,186 @@ def search(
         raise typer.Exit(code=1) from exc
 
 
+@app.command()
+def spaces(
+    query: Annotated[
+        str | None,
+        typer.Argument(
+            help="Optional: list only spaces whose key or name contains this text (case-insensitive)."
+        ),
+    ] = None,
+    base_url: Annotated[
+        str | None,
+        typer.Option(
+            "--base-url",
+            "-b",
+            envvar="CONFLUENCE_BASE_URL",
+            help="Confluence base URL. Required unless CONFLUENCE_BASE_URL is set.",
+            rich_help_panel=CONNECTION_HELP_PANEL,
+        ),
+    ] = None,
+    token: Annotated[
+        str | None,
+        typer.Option(
+            "--token",
+            "-k",
+            envvar="CONFLUENCE_PAT",
+            help="Confluence Personal Access Token. Required unless CONFLUENCE_PAT is set.",
+            rich_help_panel=CONNECTION_HELP_PANEL,
+        ),
+    ] = None,
+    request_delay: Annotated[
+        float,
+        typer.Option(
+            "--request-delay",
+            "-d",
+            min=0.0,
+            help="Minimum delay in seconds between Confluence requests.",
+            rich_help_panel=OPTIONAL_HELP_PANEL,
+        ),
+    ] = 0.0,
+    retry_backoff: Annotated[
+        float,
+        typer.Option(
+            "--retry-backoff",
+            "-r",
+            min=0.0,
+            help="Initial 429 retry backoff in seconds.",
+            rich_help_panel=OPTIONAL_HELP_PANEL,
+        ),
+    ] = 1.0,
+    max_retries: Annotated[
+        int,
+        typer.Option(
+            "--max-retries",
+            "-m",
+            min=0,
+            help="Maximum number of retries for HTTP 429 responses.",
+            rich_help_panel=OPTIONAL_HELP_PANEL,
+        ),
+    ] = 3,
+) -> None:
+    """List global Confluence spaces, optionally filtered by key or name (personal spaces are not included)."""
+    try:
+        resolved_base_url = _required_base_url(base_url)
+        resolved_token = _required_token(token)
+        with ConfluenceClient(
+            resolved_base_url,
+            resolved_token,
+            request_delay=request_delay,
+            retry_backoff=retry_backoff,
+            max_retries=max_retries,
+        ) as client:
+            client.verify_authentication()
+            matches = client.list_spaces()
+            if query:
+                needle = query.lower()
+                matches = [
+                    space
+                    for space in matches
+                    if needle in space.key.lower() or needle in space.name.lower()
+                ]
+
+            if not matches:
+                if query:
+                    typer.echo(f'No spaces found matching "{query}".')
+                else:
+                    typer.echo("No spaces found.")
+                return
+
+            rows = [
+                ("Key", "Name", "URL"),
+                *[(space.key, space.name, space.url) for space in matches],
+            ]
+            _print_table(rows)
+    except ConfluencePdfError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+
+@app.command()
+def tui(
+    output_dir: Annotated[
+        Path,
+        typer.Option(
+            "--output-dir",
+            "-o",
+            file_okay=False,
+            help="Directory where downloads are written.",
+            rich_help_panel=OPTIONAL_HELP_PANEL,
+        ),
+    ] = Path("."),
+    base_url: Annotated[
+        str | None,
+        typer.Option(
+            "--base-url",
+            "-b",
+            envvar="CONFLUENCE_BASE_URL",
+            help="Confluence base URL. Required unless CONFLUENCE_BASE_URL is set.",
+            rich_help_panel=CONNECTION_HELP_PANEL,
+        ),
+    ] = None,
+    token: Annotated[
+        str | None,
+        typer.Option(
+            "--token",
+            "-k",
+            envvar="CONFLUENCE_PAT",
+            help="Confluence Personal Access Token. Required unless CONFLUENCE_PAT is set.",
+            rich_help_panel=CONNECTION_HELP_PANEL,
+        ),
+    ] = None,
+    request_delay: Annotated[
+        float,
+        typer.Option(
+            "--request-delay",
+            "-d",
+            min=0.0,
+            help="Minimum delay in seconds between Confluence requests.",
+            rich_help_panel=OPTIONAL_HELP_PANEL,
+        ),
+    ] = 0.0,
+    retry_backoff: Annotated[
+        float,
+        typer.Option(
+            "--retry-backoff",
+            "-r",
+            min=0.0,
+            help="Initial 429 retry backoff in seconds.",
+            rich_help_panel=OPTIONAL_HELP_PANEL,
+        ),
+    ] = 1.0,
+    max_retries: Annotated[
+        int,
+        typer.Option(
+            "--max-retries",
+            "-m",
+            min=0,
+            help="Maximum number of retries for HTTP 429 responses.",
+            rich_help_panel=OPTIONAL_HELP_PANEL,
+        ),
+    ] = 3,
+) -> None:
+    """Interactively search, browse, and download Confluence pages."""
+    from .tui import ConfluenceTui
+
+    try:
+        resolved_base_url = _required_base_url(base_url)
+        resolved_token = _required_token(token)
+        with ConfluenceClient(
+            resolved_base_url,
+            resolved_token,
+            request_delay=request_delay,
+            retry_backoff=retry_backoff,
+            max_retries=max_retries,
+        ) as client:
+            client.verify_authentication()
+            ConfluenceTui(client=client, output_dir=output_dir).run()
+    except ConfluencePdfError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+
 def _required_base_url(base_url: str | None) -> str:
     value = base_url or os.environ.get("CONFLUENCE_BASE_URL")
     if not value:
@@ -915,43 +1102,6 @@ def _generated_bulk_config_path(ctx: typer.Context, bulk_config: Path, output_di
     return output_dir / bulk_config
 
 
-def _titles_by_space(pages: list[Page], *, fallback_space: str | None = None) -> dict[str, list[str]]:
-    titles_by_space: dict[str, list[str]] = defaultdict(list)
-    for page in pages:
-        space = page.space or fallback_space
-        if space is None:
-            raise ConfigError(f'Page "{page.title}" does not include a space key.')
-        if page.title not in titles_by_space[space]:
-            titles_by_space[space].append(page.title)
-    return dict(titles_by_space)
-
-
-def _bulk_requests_from_pages(
-    pages: list[Page],
-    *,
-    include_children: bool,
-    fallback_space: str | None = None,
-) -> list[BulkPageRequest]:
-    requests: list[BulkPageRequest] = []
-    seen: set[tuple[str, str]] = set()
-    for page in pages:
-        space = page.space or fallback_space
-        if space is None:
-            raise ConfigError(f'Page "{page.title}" does not include a space key.')
-        key = (space, page.title)
-        if key in seen:
-            continue
-        seen.add(key)
-        requests.append(
-            BulkPageRequest(
-                space=space,
-                title=page.title,
-                include_children=include_children,
-            )
-        )
-    return requests
-
-
 def _prompt_download_verbosity(verbosity: str) -> str:
     if verbosity == "quiet":
         return "normal"
@@ -975,25 +1125,6 @@ def _print_table(rows: list[tuple[str, ...]]) -> None:
             typer.echo("  ".join("-" * width for width in widths))
 
 
-def _format_last_edited_age(value: str, *, now: datetime | None = None) -> str:
-    if not value:
-        return ""
-    normalized = value.removesuffix("Z") + "+00:00" if value.endswith("Z") else value
-    try:
-        edited = datetime.fromisoformat(normalized)
-    except ValueError:
-        return ""
-    if edited.tzinfo is None:
-        edited = edited.replace(tzinfo=timezone.utc)
-    reference = now or datetime.now(timezone.utc)
-    if reference.tzinfo is None:
-        reference = reference.replace(tzinfo=timezone.utc)
-    age_days = (reference - edited.astimezone(timezone.utc)).days
-    if age_days <= 0:
-        return "0d"
-    return f"-{age_days}d"
-
-
 def _make_logger(verbosity: str) -> LogFn | None:
     allowed = {"quiet", "normal", "verbose"}
     if verbosity not in allowed:
@@ -1001,9 +1132,13 @@ def _make_logger(verbosity: str) -> LogFn | None:
     if verbosity == "quiet":
         return None
     max_level = {"normal": 1, "verbose": 2}[verbosity]
+    # click only strips CSI color codes on redirect, not OSC 8 hyperlinks.
+    supports_links = sys.stdout.isatty()
 
     def logger(level: str, message: str) -> None:
         if {"normal": 1, "verbose": 2}.get(level, 1) <= max_level:
+            if not supports_links:
+                message = _strip_hyperlinks(message)
             typer.echo(_decorate_log(message))
 
     return logger
@@ -1015,38 +1150,6 @@ LogFn = Callable[[str, str], None]
 def _log(logger: LogFn | None, level: str, message: str) -> None:
     if logger:
         logger(level, message)
-
-
-def _decorate_log(message: str) -> str:
-    stripped = message.strip()
-    lower = stripped.lower()
-    if lower.startswith("group "):
-        icon = "📦"
-    elif lower.startswith("bulk config") or lower.startswith("download groups") or lower.startswith("grouping"):
-        icon = "📋"
-    elif lower.startswith("version cache"):
-        icon = "🧠"
-    elif lower == "roots:" or lower.startswith("- "):
-        icon = "🌱"
-    elif lower.startswith("resolving root") or lower.startswith("resolved:"):
-        icon = "🔎"
-    elif lower.startswith("listing descendants") or lower.startswith("found ") or lower.startswith("checking children") or lower.startswith("checked "):
-        icon = "🌳"
-    elif lower.startswith("["):
-        icon = "📄"
-    elif lower.startswith("unchanged") or lower.startswith("existing valid"):
-        icon = "⏭️"
-    elif lower.startswith("downloading"):
-        icon = "⬇️"
-    elif lower == "done":
-        icon = "✅"
-    elif lower.startswith("failed"):
-        icon = "❌"
-    elif lower.startswith("starting"):
-        icon = "🚀"
-    else:
-        icon = "ℹ️"
-    return f"{icon} {message}"
 
 
 class _BulkGroup:

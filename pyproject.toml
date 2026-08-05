@@ -13,6 +13,7 @@ dependencies = [
     # so its enums no longer match the external click package - stay below it.
     "click>=8,<9",
     "httpx>=0.27,<1",
+    "textual>=8,<9",
     "typer>=0.12,<0.26",
     "weasyprint>=66,<67",
 ]
@@ -23,11 +24,13 @@ confluence-downloader = "confluence_downloader.cli:app"
 [dependency-groups]
 dev = [
     "pytest>=8,<9",
+    "pytest-asyncio>=1,<2",
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+asyncio_mode = "auto"
 
 [tool.setuptools.packages.find]
 where = ["src"]

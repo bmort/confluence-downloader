@@ -4,6 +4,13 @@ from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
+class Space:
+    key: str
+    name: str = ""
+    url: str = ""
+
+
+@dataclass(frozen=True)
 class Page:
     id: str
     title: str

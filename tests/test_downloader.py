@@ -48,6 +48,28 @@ class FakeClient:
         destination.write_text(f"<html><body>{page.title}</body></html>", encoding="utf-8")
 
 
+def test_download_logs_link_page_titles_to_their_url(tmp_path: Path) -> None:
+    fake_client = FakeClient()
+
+    def resolve_with_url(space_key: str, title: str) -> Page:
+        return Page(id="1", title=title, version=5, url="https://example.test/pages/1")
+
+    fake_client.resolve_page_by_title = resolve_with_url  # type: ignore[method-assign]
+    logs: list[str] = []
+    downloader = PdfDownloader(fake_client, logger=lambda level, message: logs.append(message))  # type: ignore[arg-type]
+
+    downloader.download(
+        space_key="DOC",
+        titles=["Root"],
+        output_dir=tmp_path,
+        include_children=False,
+    )
+
+    linked_title = "\x1b]8;;https://example.test/pages/1\x1b\\Root\x1b]8;;\x1b\\"
+    assert any(message.startswith(f"resolved: {linked_title} ") for message in logs)
+    assert any(message.startswith(f"[1/1] {linked_title} ") for message in logs)
+
+
 def test_build_pdf_filename_places_version_after_id() -> None:
     assert build_pdf_filename(Page(id="123", title="My Page", version=7)) == "my-page-123-v7.pdf"
 
@@ -241,6 +263,46 @@ def test_downloader_can_combine_children_into_single_pdf(tmp_path: Path) -> None
     manifest = (tmp_path / "downloaded_pages.md").read_text(encoding="utf-8")
     assert "root-combined-1.pdf" in manifest
     assert "html/root-1-v5.html" not in manifest
+
+
+def test_downloader_stops_between_pages_when_should_stop_fires(tmp_path: Path) -> None:
+    fake_client = FakeClient()
+    downloader = PdfDownloader(
+        fake_client,  # type: ignore[arg-type]
+        should_stop=lambda: len(fake_client.downloaded) >= 1,
+    )
+
+    summary = downloader.download(
+        space_key="DOC",
+        titles=["Root"],
+        output_dir=tmp_path,
+        include_children=True,
+    )
+
+    assert summary.cancelled
+    assert [page_id for page_id, _ in fake_client.downloaded] == ["1"]
+    assert len(summary.exported) == 1
+    # Completed pages still land in the manifest.
+    assert "Root" in (tmp_path / "downloaded_pages.md").read_text(encoding="utf-8")
+
+
+def test_downloader_stops_between_combined_roots_when_should_stop_fires(tmp_path: Path) -> None:
+    fake_client = FakeClient()
+    downloader = PdfDownloader(
+        fake_client,  # type: ignore[arg-type]
+        should_stop=lambda: len(fake_client.downloaded) >= 1,
+    )
+
+    summary = downloader.download(
+        space_key="DOC",
+        titles=["Root", "Other"],
+        output_dir=tmp_path,
+        include_children=True,
+        combine_children=True,
+    )
+
+    assert summary.cancelled
+    assert summary.exported == [tmp_path / "root-combined-1.pdf"]
 
 
 def test_downloader_can_optionally_download_html_pages(tmp_path: Path) -> None:

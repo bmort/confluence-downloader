@@ -9,7 +9,7 @@ from typer.testing import CliRunner
 import confluence_downloader.cli as cli
 from confluence_downloader.cli import app
 from confluence_downloader.downloader import DownloadSummary
-from confluence_downloader.models import Page
+from confluence_downloader.models import Page, Space
 from confluence_downloader.tree import TreePage
 
 
@@ -110,6 +110,13 @@ class FakeConfluenceClient:
             )
         ]
 
+    def list_spaces(self, *, page_size: int = 50) -> list[Space]:
+        return [
+            Space(key="DOC", name="Documentation", url="https://confluence.example.test/display/DOC"),
+            Space(key="ENG", name="Engineering", url="https://confluence.example.test/display/ENG"),
+            Space(key="SDP", name="Science Data Processor", url="https://confluence.example.test/display/SDP"),
+        ]
+
 
 class FakeDownloader:
     last_call = None
@@ -183,6 +190,49 @@ def test_cli_search_reports_no_matches(monkeypatch) -> None:
 
     assert result.exit_code == 0
     assert 'No matching pages found for "missing" in space DOC.' in result.output
+
+
+def test_cli_spaces_lists_all_spaces(monkeypatch) -> None:
+    monkeypatch.setenv("CONFLUENCE_BASE_URL", "https://confluence.example.test")
+    monkeypatch.setenv("CONFLUENCE_PAT", "env-token")
+    monkeypatch.setattr(cli, "ConfluenceClient", FakeConfluenceClient)
+
+    result = runner.invoke(app, ["spaces"])
+
+    assert result.exit_code == 0
+    assert "Key" in result.output
+    assert "Name" in result.output
+    assert "Documentation" in result.output
+    assert "Engineering" in result.output
+    assert "Science Data Processor" in result.output
+    assert "https://confluence.example.test/display/DOC" in result.output
+
+
+def test_cli_spaces_filters_by_key_or_name(monkeypatch) -> None:
+    monkeypatch.setenv("CONFLUENCE_BASE_URL", "https://confluence.example.test")
+    monkeypatch.setenv("CONFLUENCE_PAT", "env-token")
+    monkeypatch.setattr(cli, "ConfluenceClient", FakeConfluenceClient)
+
+    by_name = runner.invoke(app, ["spaces", "data proc"])
+    assert by_name.exit_code == 0
+    assert "Science Data Processor" in by_name.output
+    assert "Documentation" not in by_name.output
+
+    by_key = runner.invoke(app, ["spaces", "eng"])
+    assert by_key.exit_code == 0
+    assert "Engineering" in by_key.output
+    assert "Science Data Processor" not in by_key.output
+
+
+def test_cli_spaces_reports_no_matches(monkeypatch) -> None:
+    monkeypatch.setenv("CONFLUENCE_BASE_URL", "https://confluence.example.test")
+    monkeypatch.setenv("CONFLUENCE_PAT", "env-token")
+    monkeypatch.setattr(cli, "ConfluenceClient", FakeConfluenceClient)
+
+    result = runner.invoke(app, ["spaces", "missing"])
+
+    assert result.exit_code == 0
+    assert 'No spaces found matching "missing".' in result.output
 
 
 def test_cli_search_can_prompt_to_download_matches(monkeypatch, tmp_path: Path) -> None:

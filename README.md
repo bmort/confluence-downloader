@@ -22,6 +22,7 @@ prompted-download flows by comparing Confluence versions with the local manifest
 | Skip pages already downloaded at the same version   | Use bulk or `--ask-download`, which read `downloaded_pages.md` |
 | Discover pages and build a bulk config              | Use `confluence-downloader list --bulk-config pages.json`            |
 | Search for matching page titles                     | Use `confluence-downloader search "architecture" --space DOC` |
+| List spaces, or find a space key by name            | Use `confluence-downloader spaces "telescope"`                |
 | Handle rate limits                                  | Add `--request-delay`, `--retry-backoff`, and `--max-retries` |
 
 ## 📦 Install
@@ -169,6 +170,30 @@ uv run confluence-downloader download \
   --output-dir ./pdfs
 ```
 
+## 🖥️ Interactive TUI
+
+Search, browse, and download without remembering flags:
+
+```bash
+uv run confluence-downloader tui --output-dir ./pdfs
+```
+
+Two modes from the opening menu:
+
+- **Search pages by title** — type a query (optionally limited to a space), tick matches
+  with `space`, then press `d` to download. At the confirm step you choose whether to
+  include no children, direct children, or all descendants (with a page count shown
+  before anything downloads), plus combined-PDF, HTML, and force toggles.
+- **Browse a space** — pick a space from the list (or type a key and press enter),
+  optionally start from a root page title, then navigate the lazy-loaded page tree.
+  `x` ticks a page, `s` ticks a whole subtree, `d` downloads the ticked pages as
+  separate PDFs.
+
+Downloads stream the usual progress log, always skip unchanged versions (toggle force
+at the confirm step to override), and can be cancelled between pages with `c`. After a
+download finishes, `s` saves the selection to a bulk config JSON for repeatable
+re-downloads with `bulk`.
+
 ## 🧭 Choosing Download Options
 
 | Option               | Short      | Applies to                        | Default                                       | Meaning                                                                           |
@@ -252,6 +277,19 @@ The single `download` command does not use the manifest as a version cache. It s
 existing valid destination PDF unless `--force` is supplied.
 
 ## 🔎 Discover Pages and Generate Bulk Configs
+
+List every global space, or find a space key when you only know part of the name:
+
+```bash
+uv run confluence-downloader spaces
+```
+
+```bash
+uv run confluence-downloader spaces "telescope"
+```
+
+The filter matches case-insensitively against both the space key and its name, and the
+results include each space's URL. Personal spaces are not listed.
 
 Search for pages whose titles closely match a string:
 

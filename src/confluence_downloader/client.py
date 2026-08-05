@@ -14,7 +14,7 @@ from .errors import (
     PageLookupError,
     PdfExportError,
 )
-from .models import Page
+from .models import Page, Space
 from .render import render_combined_html_pdf, render_html_pdf, write_confluence_html
 from .utils import normalize_base_url
 
@@ -122,6 +122,35 @@ class ConfluenceClient:
             stack.extend(reversed(children))
 
         return descendants
+
+    def list_spaces(self, *, page_size: int = 50) -> list[Space]:
+        spaces: list[Space] = []
+        start = 0
+
+        while True:
+            data = self._get_json(
+                "/rest/api/space",
+                params={"type": "global", "status": "current", "start": start, "limit": page_size},
+            )
+            results = data.get("results", [])
+            for result in results:
+                key = str(result["key"])
+                webui = result.get("_links", {}).get("webui")
+                spaces.append(
+                    Space(
+                        key=key,
+                        name=str(result.get("name", "")),
+                        url=self._space_url(str(webui) if webui else "", key),
+                    )
+                )
+
+            size = int(data.get("size", len(results)))
+            limit = int(data.get("limit", page_size))
+            if size == 0 or size < limit:
+                break
+            start += size
+
+        return spaces
 
     def list_space_root_pages(self, space_key: str, *, page_size: int = 50) -> list[Page]:
         pages: list[Page] = []
@@ -342,6 +371,13 @@ class ConfluenceClient:
             version_when=str(version.get("when", "")),
             space=str(space_key),
         )
+
+    def _space_url(self, webui: str, space_key: str) -> str:
+        if webui.startswith(("http://", "https://")):
+            return webui
+        if not webui:
+            return self._url(f"/display/{space_key}")
+        return urljoin(self.base_url + "/", webui.lstrip("/"))
 
     def _page_url(self, webui: str, page_id: str) -> str:
         if webui.startswith(("http://", "https://")):

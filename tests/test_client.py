@@ -12,7 +12,7 @@ from confluence_downloader.errors import (
     PageLookupError,
     PdfExportError,
 )
-from confluence_downloader.models import Page
+from confluence_downloader.models import Page, Space
 
 
 def make_client(handler) -> ConfluenceClient:
@@ -427,3 +427,36 @@ def test_download_html_writes_styled_view_html(tmp_path: Path) -> None:
     assert "<title>Root</title>" in html
     assert '<base href="https://confluence.example.test/confluence/">' in html
     assert '<img src="https://confluence.example.test/confluence/download/attachments/123/image.png">' in html
+
+
+def test_list_spaces_paginates() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/confluence/rest/api/space"
+        assert request.url.params["type"] == "global"
+        assert request.url.params["status"] == "current"
+        start = int(request.url.params["start"])
+        if start == 0:
+            return httpx.Response(
+                200,
+                json={
+                    "results": [
+                        {"key": "DOC", "name": "Documentation", "_links": {"webui": "/display/DOC"}},
+                        {"key": "ENG", "name": "Engineering", "_links": {"webui": "/display/ENG"}},
+                    ],
+                    "size": 2,
+                    "limit": 2,
+                },
+            )
+        assert start == 2
+        return httpx.Response(
+            200,
+            json={"results": [{"key": "OPS", "name": "Operations"}], "size": 1, "limit": 2},
+        )
+
+    with make_client(handler) as client:
+        assert client.list_spaces(page_size=2) == [
+            Space(key="DOC", name="Documentation", url="https://confluence.example.test/confluence/display/DOC"),
+            Space(key="ENG", name="Engineering", url="https://confluence.example.test/confluence/display/ENG"),
+            # No webui link in the API response: fall back to the conventional display URL.
+            Space(key="OPS", name="Operations", url="https://confluence.example.test/confluence/display/OPS"),
+        ]

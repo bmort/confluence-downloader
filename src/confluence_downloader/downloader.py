@@ -16,7 +16,7 @@ from .manifest import (
 )
 from .models import Page
 from .render import is_pdf_file
-from .utils import slugify_title
+from .utils import hyperlink, slugify_title
 
 HTML_OUTPUT_DIRNAME = "html"
 
@@ -37,6 +37,7 @@ class DownloadSummary:
     failures: list[DownloadFailure] = field(default_factory=list)
     manifest_path: Path | None = None
     html_manifest_path: Path | None = None
+    cancelled: bool = False
 
     @property
     def failed(self) -> int:
@@ -47,9 +48,16 @@ LogFn = Callable[[str, str], None]
 
 
 class PdfDownloader:
-    def __init__(self, client: ConfluenceClient, *, logger: LogFn | None = None) -> None:
+    def __init__(
+        self,
+        client: ConfluenceClient,
+        *,
+        logger: LogFn | None = None,
+        should_stop: Callable[[], bool] | None = None,
+    ) -> None:
         self.client = client
         self.logger = logger
+        self.should_stop = should_stop
 
     def download(
         self,
@@ -83,10 +91,12 @@ class PdfDownloader:
         manifest_entries = read_manifest_entries(manifest_path) if skip_unchanged else {}
 
         for index, page in enumerate(pages, start=1):
+            if self._cancel_requested(summary):
+                break
             destination = output_dir / build_pdf_filename(page)
             html_destination = build_html_destination(output_dir, page)
             self._log(
-                f"[{index}/{len(pages)}] {page.title} "
+                f"[{index}/{len(pages)}] {hyperlink(page.title, page.url)} "
                 f"(id={page.id}, version={page.version if page.version is not None else 'unknown'})"
             )
             unchanged_destination = find_unchanged_pdf(output_dir, page, manifest_entries)
@@ -161,9 +171,11 @@ class PdfDownloader:
         seen_ids: set[str] = set()
 
         for root_index, title in enumerate(titles, start=1):
+            if self._cancel_requested(summary):
+                break
             self._log(f"Resolving root {root_index}/{len(titles)}: {title}")
             root = self.client.resolve_page_by_title(space_key, title)
-            self._log(f"resolved: {root.title} (id={root.id}, version={root.version if root.version is not None else 'unknown'})")
+            self._log(f"resolved: {hyperlink(root.title, root.url)} (id={root.id}, version={root.version if root.version is not None else 'unknown'})")
             self._log(f"listing descendants for {root.title}")
             page_group = [root, *self._iter_descendants_with_progress(root)]
             self._log(f"found {len(page_group) - 1} descendants")
@@ -250,7 +262,7 @@ class PdfDownloader:
         for title_index, title in enumerate(titles, start=1):
             self._log(f"Resolving root {title_index}/{len(titles)}: {title}")
             root = self.client.resolve_page_by_title(space_key, title)
-            self._log(f"resolved: {root.title} (id={root.id}, version={root.version if root.version is not None else 'unknown'})")
+            self._log(f"resolved: {hyperlink(root.title, root.url)} (id={root.id}, version={root.version if root.version is not None else 'unknown'})")
             page_group = [root]
             if include_children:
                 self._log(f"listing descendants for {root.title}")
@@ -284,6 +296,13 @@ class PdfDownloader:
 
         self._log(f"checked {visited_parents} pages while walking descendants", level="verbose")
         return descendants
+
+    def _cancel_requested(self, summary: DownloadSummary) -> bool:
+        if not (self.should_stop and self.should_stop()):
+            return False
+        self._log("cancelled; skipping remaining pages")
+        summary.cancelled = True
+        return True
 
     def _log(self, message: str, *, level: str = "normal") -> None:
         if self.logger:

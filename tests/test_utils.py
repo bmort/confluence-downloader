@@ -3,7 +3,13 @@ from pathlib import Path
 import pytest
 
 from confluence_downloader.errors import ConfigError
-from confluence_downloader.utils import merge_titles, normalize_base_url, slugify_title
+from confluence_downloader.utils import (
+    hyperlink,
+    merge_titles,
+    normalize_base_url,
+    slugify_title,
+    strip_hyperlinks,
+)
 
 
 def test_normalize_base_url_removes_trailing_slashes() -> None:
@@ -28,3 +34,18 @@ def test_slugify_title_is_filesystem_safe() -> None:
 
 def test_slugify_title_handles_symbol_only_titles() -> None:
     assert slugify_title("???") == "untitled"
+
+
+def test_hyperlink_wraps_text_in_osc8_sequence() -> None:
+    assert hyperlink("My Page", "https://example.test/x") == (
+        "\x1b]8;;https://example.test/x\x1b\\My Page\x1b]8;;\x1b\\"
+    )
+
+
+def test_hyperlink_returns_plain_text_without_url() -> None:
+    assert hyperlink("My Page", "") == "My Page"
+
+
+def test_strip_hyperlinks_removes_osc8_leaving_text() -> None:
+    linked = hyperlink("My Page", "https://example.test/x")
+    assert strip_hyperlinks(f"[1/2] {linked} (id=1)") == "[1/2] My Page (id=1)"
