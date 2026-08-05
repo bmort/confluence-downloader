@@ -16,11 +16,12 @@ from .manifest import (
     update_manifest,
 )
 from .models import Attachment, Page
-from .render import is_pdf_file
+from .render import extract_external_resources, is_pdf_file
 from .utils import format_file_size, hyperlink, sanitize_filename, slugify_title
 
 HTML_OUTPUT_DIRNAME = "html"
 ATTACHMENTS_DIRNAME = "attachments"
+EXTERNAL_RESOURCES_FILENAME = "_external-resources.md"
 
 
 @dataclass
@@ -409,6 +410,8 @@ class PdfDownloader:
             download_attachments=download_attachments,
             manifest_entries=manifest_entries,
         )
+        if download_attachments:
+            self._write_external_resources(page, output_dir=output_dir)
         attachment_targets = {
             attachment.title: (
                 f"../{ATTACHMENTS_DIRNAME}/{build_attachments_dirname(page)}/{quote(filename)}"
@@ -476,6 +479,34 @@ class PdfDownloader:
                 continue
             results.append((attachment, filename))
         return results
+
+    def _write_external_resources(self, page: Page, *, output_dir: Path) -> None:
+        """List externally hosted embeds (e.g. Google Drive) that cannot be downloaded."""
+        try:
+            html = self.client.get_page_export_view(page.id)
+        except ConfluenceApiError as exc:
+            self._log(f"could not check external resources for {page.title}: {exc}", level="verbose")
+            return
+        resources = extract_external_resources(html)
+        destination = build_attachments_destination(output_dir, page) / EXTERNAL_RESOURCES_FILENAME
+        if not resources:
+            destination.unlink(missing_ok=True)
+            return
+        lines = [
+            f"# External resources embedded on \"{page.title}\"",
+            "",
+            "These are hosted outside Confluence (e.g. Google Drive), so they cannot be",
+            "downloaded with the Confluence token. Open them with an account that has access.",
+            "",
+            *(f"- {resource.kind}: {resource.url}" for resource in resources),
+            "",
+        ]
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text("\n".join(lines), encoding="utf-8")
+        self._log(
+            f"listed {len(resources)} external resource{'s' if len(resources) != 1 else ''} "
+            f"-> {destination.name}"
+        )
 
 
 def build_pdf_filename(page: Page) -> str:

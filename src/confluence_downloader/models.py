@@ -11,6 +11,14 @@ class Space:
 
 
 @dataclass(frozen=True)
+class ExternalResource:
+    """A resource embedded on a page but hosted outside Confluence."""
+
+    kind: str
+    url: str
+
+
+@dataclass(frozen=True)
 class Attachment:
     id: str
     title: str

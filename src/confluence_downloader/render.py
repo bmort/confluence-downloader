@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import json
 from pathlib import Path
 import os
 import re
@@ -11,9 +12,11 @@ from urllib.parse import unquote, urljoin, urlsplit
 from bs4 import BeautifulSoup
 from bs4.element import Tag
 
-from .models import Page
+from .models import ExternalResource, Page
 
 UrlFetcher = Callable[[str], dict]
+
+EXTERNAL_EMBED_CLASS = "confluence-downloader-external-embed"
 
 WIDE_TABLE_CLASS = "confluence-downloader-wide-table"
 # A table lands on a landscape page when it has this many columns...
@@ -289,6 +292,7 @@ def _render_section(page: Page, body_html: str) -> str:
 def _prepare_pdf_html(document: str) -> str:
     """Apply print fixes: unhide JS-dependent macros, route wide tables to landscape pages."""
     document = _unhide_aura_tab_panels(document)
+    document = _materialize_external_embeds(document)
     document = _tag_wide_tables(document)
     return _inject_head_style(document, _pdf_print_fixes())
 
@@ -301,6 +305,7 @@ def _prepare_web_html(
 ) -> str:
     """Apply browser fixes: unhide JS-dependent macros, inline images for offline viewing."""
     document = _unhide_aura_tab_panels(document)
+    document = _materialize_external_embeds(document)
     if asset_fetcher is not None:
         document = _inline_images(document, base_url=base_url, asset_fetcher=asset_fetcher)
     return _inject_head_style(document, _web_fixes())
@@ -456,6 +461,64 @@ def _inline_images(document: str, *, base_url: str, asset_fetcher: UrlFetcher) -
     return str(soup) if changed else document
 
 
+def extract_external_resources(html: str) -> list[ExternalResource]:
+    """List resources embedded via JS-only connector macros (e.g. Google Drive)."""
+    soup = BeautifulSoup(html, "html.parser")
+    resources: list[ExternalResource] = []
+    seen: set[str] = set()
+    for module in soup.find_all(class_="uninitialized_lref_module"):
+        url = _external_embed_url(module)
+        if url and url not in seen:
+            resources.append(ExternalResource(kind=_external_resource_kind(url), url=url))
+            seen.add(url)
+    return resources
+
+
+def _materialize_external_embeds(document: str) -> str:
+    """Replace JS-only connector embeds with visible links so they survive static rendering."""
+    if "uninitialized_lref_module" not in document:
+        return document
+    soup = BeautifulSoup(document, "html.parser")
+    changed = False
+    for module in soup.find_all(class_="uninitialized_lref_module"):
+        if not isinstance(module, Tag):
+            continue
+        url = _external_embed_url(module)
+        if not url:
+            continue
+        kind = _external_resource_kind(url)
+        anchor = soup.new_tag("a", attrs={"class": EXTERNAL_EMBED_CLASS, "href": url})
+        anchor.string = f"{kind}: {url}"
+        # Swap out the whole ap-container so no empty connector wrappers linger.
+        container = module.find_parent(class_="ap-container") or module
+        container.replace_with(anchor)
+        changed = True
+    return str(soup) if changed else document
+
+
+def _external_embed_url(module: Tag) -> str:
+    context = module.get("data-context")
+    if not context:
+        return ""
+    try:
+        url = json.loads(str(context)).get("url", "")
+    except ValueError:
+        return ""
+    return url if isinstance(url, str) and url.startswith(("http://", "https://")) else ""
+
+
+def _external_resource_kind(url: str) -> str:
+    if "docs.google.com/document/" in url:
+        return "Google Doc"
+    if "docs.google.com/presentation/" in url:
+        return "Google Slides"
+    if "docs.google.com/spreadsheets/" in url:
+        return "Google Sheet"
+    if "drive.google.com/" in url:
+        return "Google Drive file"
+    return "External resource"
+
+
 def _rewrite_attachment_links(
     document: str,
     *,
@@ -525,6 +588,16 @@ def _shared_macro_fixes() -> str:
     }
     .aura-tab-nav-wrapper {
       display: none !important;
+    }
+    a.confluence-downloader-external-embed {
+      border: 1px solid #c1c7d0;
+      border-radius: 3px;
+      color: #0052cc;
+      display: inline-block;
+      margin: 2px 0;
+      overflow-wrap: anywhere;
+      padding: 2px 8px;
+      text-decoration: none;
     }
     """
 

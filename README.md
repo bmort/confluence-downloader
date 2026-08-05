@@ -448,6 +448,12 @@ tables include:
 Rerunning the tool updates existing manifest rows instead of adding duplicates.
 Attachments whose manifest version is unchanged are not re-downloaded.
 
+Pages sometimes embed files hosted outside Confluence (for example Google Docs,
+Slides, or Sheets through a connector app). Those cannot be fetched with the
+Confluence token, so `--download-attachments` instead writes an
+`_external-resources.md` alongside the page's attachments listing each embedded
+external resource and its URL.
+
 ## 🛠 PDF and HTML Rendering Behavior
 
 PDFs are rendered locally from the page's REST `body.export_view` HTML with WeasyPrint,
@@ -458,6 +464,8 @@ The renderer preserves headings, tables, inline formatting, and images that can 
 fetched through the configured PAT. Wide tables (four or more columns, or three or more
 columns containing nested bullet lists) are placed on landscape A4 pages, and list
 indentation inside table cells is compressed so deeply nested bullets stay readable.
+Embeds that Confluence normally fills in with JavaScript (such as Google Drive
+connector files) are replaced with visible links in both the PDF and HTML output.
 Existing `.pdf` files that are actually HTML are detected and replaced on the next run.
 
 When `--download-html` is used, the `.html` copy writes Confluence REST

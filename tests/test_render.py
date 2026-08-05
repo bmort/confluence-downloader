@@ -221,3 +221,59 @@ def test_sprint_review_fixture_renders_wide_tables_on_landscape_pages(tmp_path) 
     assert "landscape" in orientations
     assert "portrait" in orientations
     assert len(orientations) <= 20
+
+
+LREF_EMBED = (
+    '<p><span class="ap-container ap-inline">'
+    '<span class="uninitialized_lref_module ap-content ap-inline" '
+    "data-context='{\"url\":\"https://docs.google.com/presentation/d/abc123/edit\"}' "
+    'data-addon-key="com.bilith.lref.confluence-gdrive" '
+    'data-module-key="lref-gdrive-embedded-file"></span></span></p>'
+)
+
+
+def test_prepare_pdf_html_materializes_google_drive_embeds_as_links() -> None:
+    html = f"<html><head></head><body>{LREF_EMBED}</body></html>"
+
+    prepared = _prepare_pdf_html(html)
+
+    assert (
+        '<a class="confluence-downloader-external-embed" '
+        'href="https://docs.google.com/presentation/d/abc123/edit">'
+        "Google Slides: https://docs.google.com/presentation/d/abc123/edit</a>"
+    ) in prepared
+    assert "uninitialized_lref_module" not in prepared
+
+
+def test_prepare_web_html_materializes_google_drive_embeds_as_links() -> None:
+    html = f"<html><head></head><body>{LREF_EMBED}</body></html>"
+
+    prepared = _prepare_web_html(
+        html, base_url="https://confluence.example.test", asset_fetcher=None
+    )
+
+    assert "Google Slides: https://docs.google.com/presentation/d/abc123/edit" in prepared
+
+
+def test_extract_external_resources_lists_and_dedupes_embeds() -> None:
+    from confluence_downloader.render import extract_external_resources
+
+    html = f"<html><body>{LREF_EMBED}{LREF_EMBED}</body></html>"
+
+    resources = extract_external_resources(html)
+
+    assert [(r.kind, r.url) for r in resources] == [
+        ("Google Slides", "https://docs.google.com/presentation/d/abc123/edit")
+    ]
+
+
+def test_extract_external_resources_ignores_modules_without_urls() -> None:
+    from confluence_downloader.render import extract_external_resources
+
+    html = (
+        '<html><body><span class="uninitialized_lref_module" '
+        "data-context='{\"height\":\"300\"}'></span>"
+        '<span class="uninitialized_lref_module" data-context="not json"></span></body></html>'
+    )
+
+    assert extract_external_resources(html) == []

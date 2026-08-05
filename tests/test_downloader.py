@@ -17,6 +17,7 @@ class FakeClient:
         self.downloaded_attachments: list[tuple[str, Path]] = []
         self.attachments: dict[str, list[Attachment]] = {}
         self.html_attachment_targets: dict[str, str] | None = None
+        self.export_views: dict[str, str] = {}
 
     def resolve_page_by_title(self, space_key: str, title: str) -> Page:
         return Page(id={"Root": "1", "Other": "2"}[title], title=title, version=5)
@@ -60,6 +61,9 @@ class FakeClient:
 
     def list_attachments(self, page_id: str) -> list[Attachment]:
         return self.attachments.get(page_id, [])
+
+    def get_page_export_view(self, page_id: str) -> str:
+        return self.export_views.get(page_id, "<p>empty</p>")
 
     def download_attachment(self, attachment: Attachment, destination: Path) -> None:
         self.downloaded_attachments.append((attachment.id, destination))
@@ -434,3 +438,41 @@ def test_downloader_skips_unchanged_attachments_on_rerun(tmp_path: Path) -> None
 def test_downloader_attachments_dirname_helpers(tmp_path: Path) -> None:
     page = Page(id="9", title="My Page!", version=1)
     assert build_attachments_destination(tmp_path, page) == tmp_path / "attachments" / "my-page-9"
+
+
+def test_downloader_lists_external_resources_with_attachments(tmp_path: Path) -> None:
+    fake_client = FakeClient()
+    fake_client.export_views["1"] = (
+        '<p><span class="uninitialized_lref_module" '
+        "data-context='{\"url\":\"https://docs.google.com/document/d/abc/edit\"}'>"
+        "</span></p>"
+    )
+    downloader = PdfDownloader(fake_client)  # type: ignore[arg-type]
+
+    downloader.download(
+        space_key="DOC",
+        titles=["Root"],
+        output_dir=tmp_path,
+        include_children=False,
+        download_attachments=True,
+    )
+
+    listing = tmp_path / "attachments" / "root-1" / "_external-resources.md"
+    assert "- Google Doc: https://docs.google.com/document/d/abc/edit" in listing.read_text(
+        encoding="utf-8"
+    )
+
+
+def test_downloader_writes_no_external_listing_when_page_has_none(tmp_path: Path) -> None:
+    fake_client = FakeClient()
+    downloader = PdfDownloader(fake_client)  # type: ignore[arg-type]
+
+    downloader.download(
+        space_key="DOC",
+        titles=["Root"],
+        output_dir=tmp_path,
+        include_children=False,
+        download_attachments=True,
+    )
+
+    assert not (tmp_path / "attachments" / "root-1" / "_external-resources.md").exists()
