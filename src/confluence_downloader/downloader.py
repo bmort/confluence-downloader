@@ -357,10 +357,10 @@ class PdfDownloader:
         attachment_targets: dict[str, str] | None = None,
     ) -> Path | None:
         if not force and destination.exists():
-            self._log(f"existing HTML; skipping {destination.name}", level="verbose")
+            self._log(f"existing HTML; skipping {destination.name}")
             return destination
         try:
-            self._log(f"writing HTML -> {destination.name}", level="verbose")
+            self._log(f"downloading HTML -> {destination.name}")
             destination.parent.mkdir(parents=True, exist_ok=True)
             self.client.download_html(page, destination, attachment_targets=attachment_targets)
         except PdfExportError as exc:

@@ -476,3 +476,22 @@ def test_downloader_writes_no_external_listing_when_page_has_none(tmp_path: Path
     )
 
     assert not (tmp_path / "attachments" / "root-1" / "_external-resources.md").exists()
+
+
+def test_downloader_logs_html_downloads_at_normal_level(tmp_path: Path) -> None:
+    fake_client = FakeClient()
+    logs: list[tuple[str, str]] = []
+    downloader = PdfDownloader(fake_client, logger=lambda level, message: logs.append((level, message)))  # type: ignore[arg-type]
+
+    downloader.download(
+        space_key="DOC",
+        titles=["Root"],
+        output_dir=tmp_path,
+        include_children=False,
+        download_html=True,
+    )
+
+    assert any(
+        level == "normal" and message.startswith("downloading HTML -> ")
+        for level, message in logs
+    )
