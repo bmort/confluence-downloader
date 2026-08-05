@@ -1,4 +1,5 @@
 import re
+from pathlib import Path
 
 from confluence_downloader.models import Page
 from confluence_downloader.render import (
@@ -177,3 +178,46 @@ def test_write_confluence_html_rewrites_attachment_links(tmp_path) -> None:
 
     saved = destination.read_text(encoding="utf-8")
     assert 'href="../attachments/root-123/meeting%20notes.txt"' in saved
+
+
+FIXTURE_DIR = Path(__file__).parent / "fixtures"
+
+
+def test_sprint_review_fixture_flags_discussion_table_as_wide() -> None:
+    html = (FIXTURE_DIR / "sprint_review_export_view.html").read_text(encoding="utf-8")
+
+    tagged = _tag_wide_tables(html)
+
+    assert f'class="{WIDE_TABLE_CLASS}"' in tagged
+
+
+def test_sprint_review_fixture_renders_wide_tables_on_landscape_pages(tmp_path) -> None:
+    # Regression for the real page whose 5-column table rendered one
+    # character per line: wide tables must land on landscape pages and
+    # the document must not balloon into dozens of near-empty pages.
+    from pypdf import PdfReader
+
+    from confluence_downloader.render import render_html_pdf
+
+    html = (FIXTURE_DIR / "sprint_review_export_view.html").read_text(encoding="utf-8")
+    destination = tmp_path / "fixture.pdf"
+
+    def offline_fetcher(url: str) -> dict:
+        raise OSError(f"offline test refused to fetch {url}")
+
+    render_html_pdf(
+        page=Page(id="1", title="Sprint review fixture"),
+        html=html,
+        destination=destination,
+        base_url="https://confluence.example.test",
+        url_fetcher=offline_fetcher,
+    )
+
+    reader = PdfReader(destination)
+    orientations = [
+        "landscape" if page.mediabox.width > page.mediabox.height else "portrait"
+        for page in reader.pages
+    ]
+    assert "landscape" in orientations
+    assert "portrait" in orientations
+    assert len(orientations) <= 20

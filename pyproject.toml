@@ -24,6 +24,7 @@ confluence-downloader = "confluence_downloader.cli:app"
 
 [dependency-groups]
 dev = [
+    "pypdf>=5,<7",
     "pytest>=8,<9",
     "pytest-asyncio>=1,<2",
 ]
