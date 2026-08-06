@@ -2,7 +2,7 @@
 
 This reusable agent skill tells Codex, Claude Code, or another compatible harness how to
 use `confluence-downloader` to fetch missing or changed Confluence pages as local PDFs,
-with optional close-to-original HTML copies, before reviewing them.
+with optional close-to-original HTML copies and page attachments, before reviewing them.
 
 ## Install from a Fresh Machine
 
@@ -51,20 +51,27 @@ command -v confluence-downloader
 confluence-downloader --help
 ```
 
+Because the install is editable, later edits to `src/` take effect immediately. Re-run
+`uv tool install --force --editable .` only when `pyproject.toml` changes dependencies or
+entry points.
+
 ## Install the Skill
 
-Copy the bundled skill into Codex's skills directory:
-
-```bash
-mkdir -p "${CODEX_HOME:-$HOME/.codex}/skills"
-cp -R skills/confluence-downloader "${CODEX_HOME:-$HOME/.codex}/skills/"
-```
-
-Copy the same skill into Claude Code's skills directory:
+Claude Code follows symlinks in its skills directory, so link the skill instead of copying
+it. Updates to the repository then reach the agent with no reinstall step:
 
 ```bash
 mkdir -p "$HOME/.claude/skills"
-cp -R skills/confluence-downloader "$HOME/.claude/skills/"
+rm -rf "$HOME/.claude/skills/confluence-downloader"
+ln -s "$PWD/skills/confluence-downloader" "$HOME/.claude/skills/confluence-downloader"
+```
+
+Codex is not verified to follow symlinked skill directories, so copy the skill there:
+
+```bash
+mkdir -p "${CODEX_HOME:-$HOME/.codex}/skills"
+rm -rf "${CODEX_HOME:-$HOME/.codex}/skills/confluence-downloader"
+cp -R skills/confluence-downloader "${CODEX_HOME:-$HOME/.codex}/skills/"
 ```
 
 Restart Codex or Claude Code, or open a new session, so the agent reloads available skills.
@@ -80,6 +87,26 @@ Both should show:
 
 ```yaml
 name: confluence-downloader
+```
+
+## Update the Skill
+
+Edit `SKILL.md`, `references/`, and `scripts/` in this repository, never in an installed
+copy. A copy edited in place silently drifts from the repository and is lost the next time
+the skill is installed.
+
+After committing a skill change, refresh the copied installs:
+
+```bash
+rm -rf "${CODEX_HOME:-$HOME/.codex}/skills/confluence-downloader"
+cp -R skills/confluence-downloader "${CODEX_HOME:-$HOME/.codex}/skills/"
+```
+
+A symlinked Claude Code install needs no refresh. Confirm any copy is still in sync:
+
+```bash
+diff -r skills/confluence-downloader \
+  "${CODEX_HOME:-$HOME/.codex}/skills/confluence-downloader"
 ```
 
 ## Configure Authentication
@@ -143,6 +170,22 @@ python skills/confluence-downloader/scripts/ensure_confluence_pdfs.py \
   --output-dir pdfs
 ```
 
+For a page with its attached files and a standalone HTML copy:
+
+```bash
+python skills/confluence-downloader/scripts/ensure_confluence_pdfs.py \
+  --space DOC \
+  --title "Architecture Overview" \
+  --download-html \
+  --download-attachments \
+  --output-dir pdfs
+```
+
+Attachments land under `pdfs/attachments/<page-slug>-<page-id>/`, alongside an
+`_external-resources.md` listing files embedded on the page but hosted outside Confluence,
+such as Google Docs or Slides. Those cannot be fetched with a Confluence token, so the
+agent should surface their URLs rather than report them as missing.
+
 If you only know an approximate title, search first and use the exact returned title in the
 helper command:
 
@@ -194,10 +237,10 @@ python skills/confluence-downloader/scripts/ensure_confluence_pdfs.py \
 
 When the skill is active, ask the agent to review Confluence material and provide the page
 space/title or a bulk config. The agent should use existing PDFs when possible, call the
-downloader only for missing or changed pages, then review PDFs plus
-`downloaded_pages.md` or `downloaded_pages.html`. Use `--download-html` when local HTML
-copies are required.
-from the output directory.
+downloader only for missing or changed pages, then review the PDFs plus
+`downloaded_pages.md` or `downloaded_pages.html` from the output directory. Use
+`--download-html` when local HTML copies are required, and `--download-attachments` when
+the review depends on attached files.
 
 ## Example Agent Prompts
 
@@ -229,4 +272,12 @@ For an approximate title:
 Use the confluence-downloader skill to search the DOC space for pages matching
 "architecture overview", download the best matching page with its children, and summarize
 the resulting PDFs.
+```
+
+For a review that depends on attached files:
+
+```text
+Use the confluence-downloader skill to download the DOC page "Release Checklist" with its
+attachments, then review the page and the attached spreadsheets for gaps. List any
+externally hosted embeds you could not download.
 ```
