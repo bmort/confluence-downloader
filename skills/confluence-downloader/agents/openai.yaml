@@ -1,4 +1,4 @@
 interface:
   display_name: "Confluence Downloader"
-  short_description: "Download missing Confluence pages as PDFs for agent review."
-  default_prompt: "Use this skill to fetch missing Confluence PDFs with confluence-downloader, then review the downloaded materials."
+  short_description: "Fetch Confluence pages as PDFs, HTML, and attachments"
+  default_prompt: "Use $confluence-downloader to download the Confluence pages you need, then review the downloaded PDFs."
