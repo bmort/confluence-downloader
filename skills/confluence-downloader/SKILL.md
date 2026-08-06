@@ -1,57 +1,62 @@
 ---
 name: confluence-downloader
-description: Fetch Confluence Data Center pages as local PDFs, with optional close-to-original HTML copies, using the confluence-downloader CLI before reviewing them with an agent. Use when the user asks to review, summarize, audit, compare, analyze, or work from Confluence pages, page trees, spaces, or bulk page configs, especially when pages may not already be downloaded locally and should be pulled only if missing or changed.
+description: Fetch Confluence Data Center pages as local PDFs, HTML copies, and page attachments with the confluence-downloader CLI before reviewing them with an agent. Use when the user asks to review, summarize, audit, compare, analyze, or work from Confluence pages, page trees, spaces, attachments, or bulk page configs, especially when pages may not already be downloaded locally and should be pulled only if missing or changed.
 ---
 
 # Confluence Downloader
 
 ## Core Workflow
 
-Use the local `confluence-downloader` CLI to make sure the requested Confluence pages exist as PDFs before starting content review. Add `--download-html` when preserving the Confluence page view matters. Run commands from the `confluence-downloader` repository root, or pass `--repo /path/to/confluence-downloader` to the helper script.
+Use the local `confluence-downloader` CLI to make sure the requested Confluence pages exist as PDFs before starting content review. Run commands from the `confluence-downloader` repository root, or pass `--repo /path/to/confluence-downloader` to the helper script.
 
 1. Identify the request shape:
    - Bulk config supplied or implied: use `bulk`.
    - Approximate or uncertain page title: use `search` first, preferably with `--space` if the user provides a space.
    - Space plus page titles: use `download` for ad hoc pulls, or create a temporary bulk config when version-aware skipping matters.
    - Space tree discovery: use `list` first, optionally writing a bulk config, then run `bulk`.
+   - Files attached to pages are needed, or the review must account for embedded Google Drive files: add `--download-attachments`.
 2. Check authentication before network calls: `CONFLUENCE_BASE_URL` and `CONFLUENCE_PAT` should be set, unless the user provides `--base-url` and `--token` explicitly.
 3. Use existing downloads by default. Do not pass `--force` unless the user asks to refresh or stale PDFs are suspected.
-4. After downloading, inspect `downloaded_pages.md`, `downloaded_pages.html`, and the PDF files. If `--download-html` was used, inspect page `.html` files under `<output-dir>/html/` when preserving the Confluence page view matters.
+4. After downloading, inspect `downloaded_pages.md` and the PDF files under the output directory. Use the PDF skill or normal PDF extraction tools for review.
 5. Report which files were reviewed and whether any downloads failed or were skipped.
 
 ## Recommended Commands
 
-Run commands from the `confluence-downloader` repository root and set the macOS WeasyPrint library path:
+Run commands from the `confluence-downloader` repository root:
 
 ```bash
-DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib uv run confluence-downloader bulk --config pages.json --output-dir ./pdfs --verbosity normal
+uv run confluence-downloader bulk --config pages.json --output-dir ./pdfs --verbosity normal
 ```
 
 For one or more named pages:
 
 ```bash
-DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib uv run confluence-downloader download --space DOC --title "Architecture Overview" --output-dir ./pdfs
+uv run confluence-downloader download --space DOC --title "Architecture Overview" --output-dir ./pdfs
 ```
 
 For approximate title lookup before downloading:
 
 ```bash
-DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib uv run confluence-downloader search "architecture overview" --space DOC --limit 5
+uv run confluence-downloader search "architecture overview" --space DOC --limit 5
 ```
 
 For a page tree as one combined PDF:
 
 ```bash
-DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib uv run confluence-downloader download --space DOC --title "Architecture Overview" --include-children --output-dir ./pdfs
+uv run confluence-downloader download --space DOC --title "Architecture Overview" --include-children --output-dir ./pdfs
 ```
 
-Add `--download-html` to `download`, `bulk`, `list --ask-download`, or `search --ask-download` when page HTML copies are required.
+With page attachments and a standalone HTML copy per page:
+
+```bash
+uv run confluence-downloader download --space DOC --title "Architecture Overview" --download-attachments --download-html --output-dir ./pdfs
+```
 
 For discovery and repeatable future pulls:
 
 ```bash
-DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib uv run confluence-downloader list --space DOC --depth 2 --bulk-config pages.json
-DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib uv run confluence-downloader bulk --config pages.json --output-dir ./pdfs
+uv run confluence-downloader list --space DOC --depth 2 --bulk-config pages.json
+uv run confluence-downloader bulk --config pages.json --output-dir ./pdfs
 ```
 
 ## Helper Script
@@ -80,8 +85,9 @@ Add `--force` only when the user explicitly wants fresh downloads. Use `--dry-ru
 
 After the downloader runs:
 
-- Read `<output-dir>/downloaded_pages.md` or open `<output-dir>/downloaded_pages.html` to map page titles and IDs to downloaded filenames.
-- Review the generated PDFs, not Confluence live pages, unless download failed and the user agrees to a fallback. If `--download-html` was used, use local HTML copies for page-view fidelity.
+- Read `<output-dir>/downloaded_pages.md` to map page titles and IDs to PDF, HTML, and attachment filenames.
+- Review the generated PDFs, not Confluence live pages, unless download failed and the user agrees to a fallback.
+- With `--download-attachments`, attached files are under `<output-dir>/attachments/<page-slug>-<pageid>/`. A `_external-resources.md` there lists files embedded on the page but hosted outside Confluence (for example Google Docs or Slides); those cannot be downloaded with the Confluence token, so surface their URLs in the review instead of treating them as missing.
 - If a PDF already existed or was unchanged, treat it as valid review input and mention that it was reused.
 - If download failures occurred, continue reviewing successful PDFs and clearly list the missing pages.
 
